@@ -1,0 +1,325 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+
+datasource db {
+  provider = "postgresql"
+}
+enum kycstatus{
+  PENDING
+  VERIFIED
+  REJECTED
+}
+enum roles{
+  ELECTRIAN
+  CUSTOMER
+}
+enum label{
+  HOME
+  WORK
+  SITE
+  PERMANENT
+}
+
+
+enum code{
+  Hata
+  Kadha
+  Karuriam
+  Shajanaw
+}
+
+
+enum payment{
+  PENDING
+  PAID
+  REFUNDED
+}
+
+
+enum orderStatus{
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+
+
+}
+
+
+enum payment_status{
+  SUCCESS
+  FAILED
+}
+
+
+enum wallet{
+  CREDIT
+  DEBIT
+}
+
+
+enum category{
+   POINT
+   WITHDRAWAL
+   REFUND_REVERSAL
+   TDS_DEDUCTION
+}
+
+
+enum payout_reque{
+  REQUESTED
+  PROCESSED
+  FAILED
+}
+
+
+model user_customer {
+  customer_id Int @id @default(autoincrement())
+  phone_number String @db.VarChar(15) @unique
+  email String @unique
+  name String?
+  password_hash String
+  is_active Boolean @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+
+
+
+  address user_addresses[]
+  order orders[]
+
+
+
+
+  paymentIns payment_in[]
+
+
+
+
+
+
+  cartSessions cart_session[]
+}
+
+
+model electrican_customer {
+  electrican_id Int @id @default(autoincrement())
+  phone_number String @unique @db.VarChar(15)
+  reffreal_code String @unique @db.VarChar(5)
+  full_name String @db.VarChar(150)
+  kyc_stat kycstatus @default(PENDING)
+  pan_card_number String @unique @db.VarChar(10)
+  wallet_balance Int @default(0)
+  back_account_json Json
+  is_active Boolean @default(true)
+  address user_addresses[]
+  orders orders[] @relation("OrderElectrican")
+  refreal_orders orders[] @relation("AttributedElectrican")
+
+
+  walletLedgers wallet_ledger[]
+
+
+  payoutRequests payout_request[]
+}
+
+
+model user_addresses {
+  address_id Int @id @default(autoincrement())
+  customer_id Int?
+  customer  user_customer? @relation(fields: [customer_id], references: [customer_id])
+  electrican_id Int?
+  electrican  electrican_customer? @relation(fields: [electrican_id], references: [electrican_id])
+  user_type roles
+  address_label label
+  street_address String @db.Text
+  city String @db.VarChar(150)
+  state String @db.VarChar(150)
+  country String @db.VarChar(150)
+  pincode String  @db.VarChar(6)
+  is_active Boolean @default(true)
+}
+
+
+model categories{
+  category_id Int @id @default(autoincrement())
+  parent_id Int?
+  name String @db.VarChar(150)
+  image_url String @db.Text
+  is_active Boolean @default(true)
+ 
+}
+
+
+model products{
+  product_id Int @id @default(autoincrement())
+  category_id Int?
+  sku String @unique @db.VarChar(15)
+  name String @db.VarChar(150)
+  description String @db.Text
+  specification Json
+  price_mrp Decimal
+  price_selling Decimal
+  tax_rate_percent Decimal
+  is_active Boolean @default(true)
+
+
+  stock inventory_stock[]
+ 
+
+
+  orderItems order_items[]
+
+
+  cartItems cart_items[]
+}
+
+
+model inventory_stock{
+  inventory_id Int @id @default(autoincrement())
+  product_id Int
+  product products@relation(fields: [product_id], references: [product_id])
+  quantity_on_hand Int
+  quantity_reserved Int
+  warehouse_location_code code
+
+
+}
+
+
+model orders{
+  order_id Int @id @default(autoincrement())
+  customer_id Int?
+  customer user_customer? @relation(fields: [customer_id], references: [customer_id])
+  electrican_id Int?
+  electrican electrican_customer? @relation("OrderElectrican", fields: [electrican_id], references: [electrican_id])
+  attributed_electrican_id Int?
+  attributed_electrican electrican_customer? @relation("AttributedElectrican", fields: [attributed_electrican_id], references: [electrican_id])
+  total_amount Decimal @default(0)
+  total_tax Decimal @default(0)
+  total_discount Decimal @default(0)
+  total_paid Decimal @default(0)
+  total_electrican_point Decimal @default(0)
+  order_status orderStatus @default(PROCESSING)
+  payment_status payment
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  orderItems order_items[]
+
+
+  paymentIns payment_in[]
+
+
+  invoices invoices[]
+}
+
+
+model order_items{
+  order_item_id Int @id @default(autoincrement())
+  order_id Int
+  order orders@relation(fields: [order_id], references: [order_id])
+  product_id Int
+  product products@relation(fields: [product_id], references: [product_id])
+  quantity Int
+  frozen_price Decimal
+  frozen_commission Decimal
+  subtotal Decimal
+
+
+}
+
+
+model payment_in{
+  payment_id Int @id @default(autoincrement())
+  order_id Int
+  order orders@relation(fields: [order_id], references: [order_id])
+  customer_id Int
+  customer user_customer@relation(fields: [customer_id], references: [customer_id])
+  gateway_txn_id String @db.VarChar()
+  amount Decimal
+  method String @db.VarChar()
+  status payment_status
+  paid_at DateTime @default(now())
+}
+
+
+model invoices{
+  invoice_id Int @id @default(autoincrement())
+  order_id Int
+  order orders@relation(fields: [order_id], references: [order_id])
+  pdf_url String @db.Text
+}
+
+
+model wallet_ledger{
+  transaction_id Int @id @default(autoincrement())
+  electrican_id Int
+  electrican electrican_customer@relation(fields: [electrican_id], references: [electrican_id])
+  types wallet @default(CREDIT)
+  category category @default(POINT)
+  amount Decimal
+  reference_id String @db.VarChar(20)
+  description String @db.Text
+  created_at DateTime @default(now())
+
+
+
+
+ 
+}
+
+
+model payout_request{
+  payout_id Int @id @default(autoincrement())
+  electrican_id Int
+  electrican electrican_customer@relation(fields: [electrican_id], references: [electrican_id])
+  amount Decimal
+  status payout_reque @default(REQUESTED)
+  bank_utr String @db.VarChar()
+  processed_at DateTime @default(now())
+
+
+
+
+}
+
+
+model cart_session{
+  cart_id Int @id @default(autoincrement())
+  customer_id Int
+  customer user_customer@relation(fields: [customer_id], references: [customer_id])
+  applied_electrican_code  String?
+  is_active Boolean
+  updated_at DateTime @updatedAt
+
+
+  cartItems cart_items[]
+}
+
+
+
+
+ 
+model cart_items{
+  cart_item_id Int @id @default(autoincrement())
+  cart_id Int
+  cart cart_session@relation(fields: [cart_id], references: [cart_id])
+  product_id Int
+  product products@relation(fields: [product_id], references: [product_id])
+  quantity Int
+
+
+}
