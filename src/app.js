@@ -6,6 +6,7 @@ import axios from "axios"
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import { error } from "winston";
+import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
 
 const app = express()
@@ -35,6 +36,7 @@ const limiter = ratelimit({
 })
 
 app.use(limiter)
+app.use(errorMiddleware)
 
 
 
