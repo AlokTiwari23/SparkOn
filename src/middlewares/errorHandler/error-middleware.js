@@ -1,21 +1,31 @@
 import { AppError } from "./index.js";
 
-// Middleware looks good now!
-export const errorMiddleware = (err, req, res, next) => {
-    
-    // 1. Handle trusted custom errors
-    if (err instanceof AppError) {
-        console.log(`Error ${req.method} - ${req.url} - ${err.statusCode} - ${err.message}`);
+import { ZodError } from "zod";
 
+export const errorMiddleware = (err, req, res, next) => {
+
+    // 1️⃣ ZOD VALIDATION ERRORS
+    if (err instanceof ZodError) {
+        return res.status(400).json({
+            status: "error",
+            errors: err.message
+           
+        });
+    }
+
+    // 2️⃣ CUSTOM APP ERRORS
+    if (err instanceof AppError) {
         return res.status(err.statusCode).json({
             status: "error",
             message: err.message
         });
     }
 
-    // 2. Handle generic errors
-    console.error(`Unhandled Error`, err);
-    res.status(500).json({
-        error: "Something went wrong, please try again later"
+    // 3️⃣ UNKNOWN / PROGRAMMING ERRORS
+    console.error("Unhandled Error:", err);
+
+    return res.status(500).json({
+        status: "error",
+        message: "Internal server error"
     });
 };

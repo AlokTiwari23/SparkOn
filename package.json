@@ -36,6 +36,7 @@
     "swagger-autogen": "^2.23.7",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "twilio": "^5.11.2",
     "winston": "^3.19.0",
     "xss-clean": "^0.1.4",
     "zod": "^4.3.5"

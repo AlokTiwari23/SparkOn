@@ -1,41 +1,24 @@
 import crypto from "crypto";
-import { z } from "zod";
 import { ValidationError } from "../middlewares/errorHandler/index.js";
 import redis from "../db/redis.js";
-import { sendemail } from "./sendMail/index.js";
+import { sendotp } from "./send-phone-otp.js";
 
 
-// 1. Define the Schema once
-const registerSchema = z.object({
 
-    name: z.string().min(2, { message: "Name must be at least 2 characters" }),
 
-    email: z.string().email({ message: "Invalid email address" }),
+export const validateRegistrationData = (phone_number) => {
 
-    password: z.string().min(6, { message: "Password must be at least 6 characters" }),
-
-    phone_number: z.string().min(10, { message: "Phone number is too short" }),
-
-    country: z.string().min(1, { message: "Country is required" })
-});
-
-export const validateRegistrationData = (data) => {
-    // Note: user_type argument hata diya kyunki use nahi ho raha tha
-    const result = registerSchema.safeParse(data);
-
-    if (!result.success) {
-        // Sirf pehla error message nikal kar throw karein
-        const errorMessage = result.error.errors[0].message;
-        throw new ValidationError(errorMessage);
-    }
+    if (!/^[6-9]\d{9}$/.test(phone_number)) {
+            throw new ValidationError("Invalid Indian phone number");
+        }
 };
 
-export const checkOtpRestrication = async (email) => {
+export const checkOtpRestrication = async (phone_number) => {
     // wrong otp lock
-    const [otpLock,spamlock,cooldown] = await Promise.all([
-        redis.get(`otp_lock:${email}`),
-        redis.get(`otp_spam_lock:${email}`),
-        redis.get(`otp_cooldown:${email}`)
+    const [otpLock, spamlock, cooldown] = await Promise.all([
+        redis.get(`otp_lock:${phone_number}`),
+        redis.get(`otp_spam_lock:${phone_number}`),
+        redis.get(`otp_cooldown:${phone_number}`)
     ])
 
     if (otpLock) {
@@ -53,11 +36,11 @@ export const checkOtpRestrication = async (email) => {
 }
 
 
-export const trackOtpRequests = async (email) => {
+export const trackOtpRequests = async (phone_number) => {
 
     // These time I make every redis work one by one Since they are not 
     // realted to each make them in Parllel
-    const otpRequestKey = `otp_request_count:${email}`;
+    const otpRequestKey = `otp_request_count:${phone_number}`;
     const count = await redis.incr(otpRequestKey)
 
 
@@ -68,7 +51,7 @@ export const trackOtpRequests = async (email) => {
     // it will going to delete the key pair after the first otp 
     // send is 1 Hour..
     if (count > 5) {
-        promise.push(redis.set(`otp_spam_lock:${email}`, "locked", "EX", 3600))
+        promise.push(redis.set(`otp_spam_lock:${phone_number}`, "locked", "EX", 3600))
 
     }
 
@@ -86,27 +69,29 @@ export const trackOtpRequests = async (email) => {
 
 }
 
-export const sendOtp = async (email, name, template) => {
+export const sendotpcode = async (phone_number) => {
     // 4 digit otp
     try {
         const otp = crypto.randomInt(1000, 9999).toString();
 
-        await redis.set(`otp:${email}`, otp, "EX", 300); // expirty of the otp 300
-        await redis.set(`otp_cooldown:${email}`, "true", "EX", 60); // you can sent the otp in the timestamp of the 1 min
+        await redis.set(`otp:${phone_number}`, otp, "EX", 300); // expirty of the otp 300
+        await redis.set(`otp_cooldown:${phone_number}`, "true", "EX", 60); // you can sent the otp in the timestamp of the 1 min
 
-        setImmediate(() => {
-            try{
-                sendemail(email, "Verify your Email and Make Your Home Brighter -- Spark On", template, { // 1. Name of your App
-                companyName: "Spark On",
-                userName: name,
-                otp: otp,
-                companyUrl: "http://localhost:3000"
-            })
-            }catch(error){
-                throw new ValidationError(`Error sending email ${error.message}`)
-            }
+        // setImmediate(() => {
+        //     try {
+        //         sendemail(email, "Verify your Email and Make Your Home Brighter -- Spark On", template, { // 1. Name of your App
+        //             companyName: "Spark On",
+        //             userName: name,
+        //             otp: otp,
+        //             companyUrl: "http://localhost:3000"
+        //         })
+        //     } catch (error) {
+        //         throw new ValidationError(`Error sending email ${error.message}`)
+        //     }
 
-        })
+        // })
+
+        sendotp(`+91${phone_number}`)
 
 
 
@@ -117,20 +102,53 @@ export const sendOtp = async (email, name, template) => {
 }
 
 
-export const verfiyotp = async (req, res, next) => {
-    try {
-         const sotredOtp = await redis.get(`otp:${email}`)
+export const verifyOtp = async (email, otp) => {
+    const lockKey = `otp_lock:${email}`;
+    const otpKey = `otp:${email}`;
+    const attemptKey = `otp_attempts:${email}`;
 
-         if(!sotredOtp){
-            return next(new ValidationError("Invalid or Expired OTP"))
-         }
+    // 🔹 Use pipeline (1 round-trip)
+    const pipeline = redis.multi();
+    pipeline.get(lockKey);
+    pipeline.get(otpKey);
+    pipeline.get(attemptKey);
 
-         
+    const [[, isLocked], [, storedOtp], [, attempts]] = await pipeline.exec();
 
-    } catch (error) {
-        next(error)
+    if (isLocked) {
+        throw new ValidationError("Account locked. Try again after 30 minutes.");
     }
-}
+
+    if (!storedOtp) {
+        throw new ValidationError("Invalid or expired OTP");
+    }
+
+    if (storedOtp !== otp) {
+        const attempt = (parseInt(attempts || "0", 10)) + 1;
+
+        const failPipeline = redis.multi();
+
+        if (attempt >= 3) {
+            failPipeline.set(lockKey, "locked", "EX", 1800);
+            failPipeline.del(otpKey, attemptKey);
+        } else {
+            failPipeline.set(attemptKey, attempt, "EX", 300);
+        }
+
+        await failPipeline.exec();
+
+        throw new ValidationError(
+            attempt >= 3
+                ? "Too many attempts. Account locked for 30 minutes."
+                : `Incorrect OTP. ${3 - attempt} attempts left.`
+        );
+    }
+
+    // ✅ Success cleanup
+    await redis.del(otpKey, attemptKey);
+    return true;
+};
+
 
 
 

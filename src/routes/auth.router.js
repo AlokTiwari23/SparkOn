@@ -1,7 +1,8 @@
 import express from "express"
-import { userRegistraion } from "../controllers/auth.controllers.js"
+import { sendPhoneotp, verifyUser } from "../controllers/auth.controllers.js"
 const authrouter =  express.Router()
 
-authrouter.post("/user-registration",userRegistraion)
+authrouter.post("/user-send-otp",sendPhoneotp)
+authrouter.post("/verfiy-otp" ,verifyUser )
 
 export default authrouter;
