@@ -1,62 +1,47 @@
-
 export class AppError extends Error {
-     statusCode;
-     message;
+    statusCode;
 
-
-   constructor(statusCode , message ){
-    super(message)
-    this.statusCode = statusCode
-    
-    Error.captureStackTrace(this , this.constructor)
-   }
+    //  FIX 1: Swapped arguments to (message, statusCode)
+    constructor(message, statusCode) {
+        super(message);
+        this.statusCode = statusCode;
+        Error.captureStackTrace(this, this.constructor);
+    }
 }
-
-// Not found Error
 
 export class NotFoundError extends AppError {
-    constructor(message = "Resources not found"){
-        super(message,404)
+    constructor(message = "Resource not found") {
+        super(message, 404);
     }
 }
 
-// validation error (use for Joi/zod/react-hook-form validation errors )
-
-export class VaildationError extends AppError{
-    constructor(message = "Validation Error"){
-        super(message,400)
-    
+export class ValidationError extends AppError {
+    constructor(message = "Validation Error") {
+        super(message, 400);
     }
 }
 
-// Authentication Error
-
-export class AuthenticationError extends AppError{
-    constructor(message = "Authentication Error"){
-        super(message,401)
-    }
-
-}
-
-// Forbbiden Error
-
-export class ForbbidenError extends AppError{
-    constructor(message = "Forbidden Error"){
-        super(message,403)
+export class AuthenticationError extends AppError {
+    constructor(message = "Authentication Error") {
+        super(message, 401);
     }
 }
 
-//Database Error
-
-export class DatabaseError extends AppError{
-    constructor(message = "Database Error"){
-        super(message,500)
+//  FIX 2: Fixed spelling (Forbidden)
+export class ForbiddenError extends AppError {
+    constructor(message = "Forbidden Error") {
+        super(message, 403);
     }
 }
-// Rate Limit Error
 
-export class RateLimitError extends AppError{
-    constructor(message = "Rate Limit Error"){
-        super(message,429)
+export class DatabaseError extends AppError {
+    constructor(message = "Database Error") {
+        super(message, 500);
+    }
+}
+
+export class RateLimitError extends AppError {
+    constructor(message = "Too many requests, please try again later") {
+        super(message, 429);
     }
 }

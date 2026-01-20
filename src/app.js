@@ -1,18 +1,22 @@
 import express  from "express";
 import cors from "cors";
 import ratelimit from "express-rate-limit"
-import swaggerUi from "swagger-ui-express"
-import axios from "axios"
+
+
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
-import { error } from "winston";
-import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
+// import { errorMiddleware } from "./middlewares/errorHandler/error-middleware.js";
+
+import { errorMiddleware } from "./middlewares/errorHandler/error-middleware.js"
+import authrouter from "./routes/auth.router.js";
+
+// You must include 'with { type: "json" }'
 
 const app = express()
 
 app.use(cors({
-    origin:["http://localhost:3000"],
+    origin:["http://localhost:8000"],
     allowedHeaders:["Content-Type","Authorization"],
     credentials:true
 }))
@@ -29,14 +33,19 @@ const limiter = ratelimit({
     message:{error: "Too many requests from this IP, please try again after 15 minutes"},
     standardHeaders:true,
     legacyHeaders:true,
-    keyGenerator:(req)=>{
-        return req.ip
-    }
+    // keyGenerator:(req)=>{
+    //     return req.ip
+    // }
 
 })
 
 app.use(limiter)
+//Rooutes
+
+app.use("/api" , authrouter)
+
 app.use(errorMiddleware)
+
 
 
 
