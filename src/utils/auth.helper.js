@@ -1,7 +1,9 @@
 import crypto from "crypto";
 import { ValidationError } from "../middlewares/errorHandler/index.js";
 import redis from "../db/redis.js";
-import { sendotp } from "./send-phone-otp.js";
+import sendotp  from "./send-phone-otp.js";
+import { response } from "express";
+import { error } from "console";
 
 
 
@@ -90,65 +92,15 @@ export const sendotpcode = async (phone_number) => {
         //     }
 
         // })
-
-        sendotp(`+91${phone_number}`)
-
-
+        const formatedNumber = `+91${phone_number}`
+        
+        sendotp(formatedNumber)
 
     } catch (error) {
         throw new ValidationError(`Error sending OTP ${error.message}`)
     }
 
 }
-
-
-export const verifyOtp = async (email, otp) => {
-    const lockKey = `otp_lock:${email}`;
-    const otpKey = `otp:${email}`;
-    const attemptKey = `otp_attempts:${email}`;
-
-    // 🔹 Use pipeline (1 round-trip)
-    const pipeline = redis.multi();
-    pipeline.get(lockKey);
-    pipeline.get(otpKey);
-    pipeline.get(attemptKey);
-
-    const [[, isLocked], [, storedOtp], [, attempts]] = await pipeline.exec();
-
-    if (isLocked) {
-        throw new ValidationError("Account locked. Try again after 30 minutes.");
-    }
-
-    if (!storedOtp) {
-        throw new ValidationError("Invalid or expired OTP");
-    }
-
-    if (storedOtp !== otp) {
-        const attempt = (parseInt(attempts || "0", 10)) + 1;
-
-        const failPipeline = redis.multi();
-
-        if (attempt >= 3) {
-            failPipeline.set(lockKey, "locked", "EX", 1800);
-            failPipeline.del(otpKey, attemptKey);
-        } else {
-            failPipeline.set(attemptKey, attempt, "EX", 300);
-        }
-
-        await failPipeline.exec();
-
-        throw new ValidationError(
-            attempt >= 3
-                ? "Too many attempts. Account locked for 30 minutes."
-                : `Incorrect OTP. ${3 - attempt} attempts left.`
-        );
-    }
-
-    // ✅ Success cleanup
-    await redis.del(otpKey, attemptKey);
-    return true;
-};
-
 
 
 
