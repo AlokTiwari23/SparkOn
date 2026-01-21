@@ -1,9 +1,10 @@
 import crypto from "crypto";
 import { ValidationError } from "../middlewares/errorHandler/index.js";
 import redis from "../db/redis.js";
-import sendotp  from "./send-phone-otp.js";
+import sendotp from "./send-phone-otp.js";
 import { response } from "express";
 import { error } from "console";
+import { success } from "zod";
 
 
 
@@ -11,8 +12,8 @@ import { error } from "console";
 export const validateRegistrationData = (phone_number) => {
 
     if (!/^[6-9]\d{9}$/.test(phone_number)) {
-            throw new ValidationError("Invalid Indian phone number");
-        }
+        throw new ValidationError("Invalid Indian phone number");
+    }
 };
 
 export const checkOtpRestrication = async (phone_number) => {
@@ -74,27 +75,13 @@ export const trackOtpRequests = async (phone_number) => {
 export const sendotpcode = async (phone_number) => {
     // 4 digit otp
     try {
-        const otp = crypto.randomInt(1000, 9999).toString();
+        const otp = crypto.randomInt(100000, 999999).toString();
 
         await redis.set(`otp:${phone_number}`, otp, "EX", 300); // expirty of the otp 300
         await redis.set(`otp_cooldown:${phone_number}`, "true", "EX", 60); // you can sent the otp in the timestamp of the 1 min
-
-        // setImmediate(() => {
-        //     try {
-        //         sendemail(email, "Verify your Email and Make Your Home Brighter -- Spark On", template, { // 1. Name of your App
-        //             companyName: "Spark On",
-        //             userName: name,
-        //             otp: otp,
-        //             companyUrl: "http://localhost:3000"
-        //         })
-        //     } catch (error) {
-        //         throw new ValidationError(`Error sending email ${error.message}`)
-        //     }
-
-        // })
         const formatedNumber = `+91${phone_number}`
-        
-        sendotp(formatedNumber)
+
+        sendotp(formatedNumber, otp)
 
     } catch (error) {
         throw new ValidationError(`Error sending OTP ${error.message}`)
@@ -105,4 +92,24 @@ export const sendotpcode = async (phone_number) => {
 
 
 
+export const verifyotp = async (phone_number, otp) => {
+    try {
+         
 
+        const saved_otp = await redis.get(`otp:${phone_number}`);
+
+        if (!saved_otp) {
+            throw new ValidationError(`Please Try Again`)
+
+        }
+
+        if (otp !== saved_otp) {
+            throw new ValidationError(`Wrong OTP`)
+        }
+        await redis.del(`otp:${phone_number}`)
+
+    } catch (error) {
+        throw new ValidationError(`Wrong OTP ${error.message}`)
+    }
+
+}

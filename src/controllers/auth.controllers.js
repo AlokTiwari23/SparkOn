@@ -1,4 +1,4 @@
-import { sendotpcode, validateRegistrationData, checkOtpRestrication, trackOtpRequests } from "../utils/auth.helper.js"
+import { sendotpcode, validateRegistrationData, checkOtpRestrication, trackOtpRequests  , verifyotp} from "../utils/auth.helper.js"
 import prisma from "../db/db.prisam.js"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
@@ -26,12 +26,35 @@ export const sendPhoneotp = async (req, res, next) => {
         await sendotpcode(phone_number)
 
         res.status(200).json({
-            message: "OTP sent successfully .Please verify your email"
+            message: "OTP sent successfully to your phone number"
+
 
         })
 
     } catch (error) {
         next(error)
     }
+}
+
+
+export const verifyPhoneotp = async (req, res, next) => {
+    try {
+
+        const {phone_number,otp} = req.body
+
+        await  verifyotp(phone_number,otp)
+
+
+        res.status(200).json({
+            success:true,
+            message:"OTP Verified Successfully"
+        })
+
+    }catch(error){
+        next(error)
+    }
+
+
+
 }
 
