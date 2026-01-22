@@ -74,29 +74,6 @@ const trackOtpRequests = async (phone_number) => {
 }
 
 
-export const verifyotp = async (phone_number, otp) => {
-    try {
-
-
-        const saved_otp = await redis.get(`otp:${phone_number}`);
-
-        if (!saved_otp) {
-            throw new ValidationError(`Please Try Again`)
-
-        }
-
-        if (otp !== saved_otp) {
-            throw new ValidationError(`Wrong OTP`)
-        }
-        await redis.del(`otp:${phone_number}`)
-
-    } catch (error) {
-        throw new ValidationError(`Wrong OTP ${error.message}`)
-    }
-
-}
-
-
 
 function generateReferralCode(name, phone) {
     // Remove spaces and take first 2 letters of name (uppercase)
@@ -111,35 +88,7 @@ function generateReferralCode(name, phone) {
 
 
 
-export const savedata = async (name, phone_number, role) => {
-    try {
 
-        if (role === "CUSTOMER") {
-            await prisma.user_customer.create({
-                data: {
-                    name,
-                    phone_number
-                }
-            })
-        }
-        if (role === "ELECTRICAN") {
-            await prisma.electrician_customer.create({
-                data: {
-                    name,
-                    phone_number,
-                    reffreal_code: generateReferralCode(name, phone_number)
-                }
-            })
-        }
-
-        await redis.del(`info:${phone_number}`)
-
-    }
-    catch (error) {
-        throw new ValidationError(`Error saving data ${error.message}`)
-
-    }
-}
 
 export const otprequest = async (phone_number) => {
 
@@ -187,4 +136,37 @@ export const otprequest = async (phone_number) => {
 
 
 
+}
+
+export const savedata = async (name, phone_number, role) => {
+    try {
+
+        if (role === "CUSTOMER") {
+            await prisma.user_customer.create({
+                data: {
+                    name,
+                    phone_number
+                }
+            })
+        }
+        if (role === "ELECTRICAN") {
+            await prisma.electrician_customer.create({
+                data: {
+                    name,
+                    phone_number,
+                    reffreal_code: generateReferralCode(name, phone_number)
+                }
+            })
+        }
+
+
+    }
+    catch (error) {
+        if (error.code === 'P2002') {
+            throw new ValidationError("User already exists.");
+        }
+        throw new ValidationError(`Error saving data: ${error.message}`);
+
+
+    }
 }

@@ -1,9 +1,7 @@
-import { otprequest,validateRegistrationData , savedata ,verifyotp} from "../utils/auth.helper.js"
+import { otprequest,validateRegistrationData , savedata } from "../utils/auth.helper.js"
 import prisma from "../db/db.prisam.js"
-import { success, z } from "zod"
 import bcrypt from "bcryptjs"
 import { ValidationError } from "../middlewares/errorHandler/index.js"
-import { th } from "zod/v4/locales"
 import redis from "../db/redis.js"
 // Registration a New Users
 
@@ -18,7 +16,7 @@ export const registerUser = async(req,res,next) =>{
         const {name , phone_number ,role } = req.body
         
         if(!name || !phone_number || !role){
-            throw new ValidationError("All fields are required")
+            next( new ValidationError("All fields are required"))
         }
         
         // Checking the phone Number Is valid or Not
@@ -42,7 +40,7 @@ export const registerUser = async(req,res,next) =>{
                 }  // we have to into the where {column_name:value}
             })
         }else{
-            throw new ValidationError("Invalid Role")
+            next(new ValidationError("Invalid Role"))
         }
 
         
@@ -50,7 +48,7 @@ export const registerUser = async(req,res,next) =>{
 
         
         if(existingUser){
-            throw new ValidationError("User already exists with this phone number")
+            next( new ValidationError("User already exists with this phone number"))
 
         }
 
@@ -66,7 +64,7 @@ export const registerUser = async(req,res,next) =>{
         })
 
     }catch(error){
-        next(error)
+        next(new ValidationError(error.message))
     }
 }
 
@@ -77,21 +75,42 @@ export const verfiyuser = async(req,res,next) =>{
         const {phone_number , otp} = req.body
 
         if(!phone_number || !otp){
-            throw new ValidationError("All fields are required")}
+            next(new ValidationError("All fields are required"))}
 
+         
 
-        await verifyotp(phone_number,otp)
+        const [userInfo , saved_otp] = await Promise.all([
+            redis.get(`info:${phone_number}`),
+            redis.get(`otp:${phone_number}`)
+        ])
 
-        const userInfo = await redis.get(`info:${phone_number}`)
+        if(!userInfo || !saved_otp){
+            next(new ValidationError(`Please request a new OTP`))
+        }
 
+        if(otp !== saved_otp){
+            next(new ValidationError(`Wrong OTP`))
+        }
         const {name,role} = JSON.parse(userInfo)
 
+        
+
         await savedata(name,phone_number,role)
+         
+        await Promise.all([
+            redis.del(`info:${phone_number}`),
+            redis.del(`otp:${phone_number}`)
+        ])
+
+        res.status(200).json({
+            success:true,
+            message:"User registered successfully"
+        })
 
 
 
 
     }catch(error){
-        next(error)
+        next(new ValidationError(error.message))
     }
 }
