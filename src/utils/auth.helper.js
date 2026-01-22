@@ -1,9 +1,8 @@
 import crypto from "crypto";
 import { ValidationError } from "../middlewares/errorHandler/index.js";
 import redis from "../db/redis.js";
-
 import prisma from "../db/db.prisam.js"
-import { smsQueue } from "../queue.js";
+import sendotp from "./send-phone-otp.js";
 
 
 
@@ -44,25 +43,28 @@ const trackOtpRequests = async (phone_number) => {
 
     // These time I make every redis work one by one Since they are not 
     // realted to each make them in Parllel
-    const otpRequestKey = `otp_request_count:${phone_number}`;
+    const otpRequestKey = `otp_request_count:${phone_number}`
+    const spamlockKey = `otp_spam_lock:${phone_number}`;
     const count = await redis.incr(otpRequestKey)
 
 
     // these we don't wait we can do at same time
-    const promise = []
+    const promises = []
 
-    if (count === 1) promise.push(redis.expire(otpRequestKey, 3600))
+    if (count === 1) promises.push(redis.expire(otpRequestKey, 3600))
     // it will going to delete the key pair after the first otp 
     // send is 1 Hour..
     if (count > 5) {
-        promise.push(redis.set(`otp_spam_lock:${phone_number}`, "locked", "EX", 3600))
+        promises.push(redis.set(spamlockKey, "locked", "EX", 3600))
 
     }
 
     // why 2 Beacuse 1st time its 0 and second time its 1
     // third times it is 2
 
-    await Promise.all(promise)
+    if (promises.length > 0) {
+        await Promise.all(promises);
+    }
 
     if (count > 5) {
         throw new ValidationError(`Too many OTP requests! Please wait 1 hour before tryagain.`)
@@ -111,17 +113,7 @@ export const otprequest = async (phone_number) => {
 
 
         // Add to BullMQ ( The heavy lifting happens later)
-        await smsQueue.add('send-otp', {
-            phone_number,
-            otp
-
-        }, {
-            attempts: 3, //Retry3 times if twilio fails
-            backoff: 5000, // Wait 5 second  between  retries
-            removeOnComplete: true // Delete the job when the job succesfully done
-        }
-
-        )
+        await sendotp(phone_number , otp)
 
 
 
@@ -139,18 +131,19 @@ export const otprequest = async (phone_number) => {
 }
 
 export const savedata = async (name, phone_number, role) => {
-    try {
+    try {  
+        let user = null ;
 
         if (role === "CUSTOMER") {
-            await prisma.user_customer.create({
+             user = await prisma.user_customer.create({
                 data: {
                     name,
                     phone_number
                 }
             })
         }
-        if (role === "ELECTRICAN") {
-            await prisma.electrician_customer.create({
+        if (role === "ELECTRICIAN") {
+            user = await prisma.electrician_customer.create({
                 data: {
                     name,
                     phone_number,
@@ -158,6 +151,8 @@ export const savedata = async (name, phone_number, role) => {
                 }
             })
         }
+
+        return user;
 
 
     }

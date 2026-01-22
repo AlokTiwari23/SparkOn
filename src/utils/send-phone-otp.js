@@ -12,11 +12,15 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 
 async function sendotp(phone_number, otp) {
+
+  const formated_phone_number = `+91${phone_number}`
+  console.log(formated_phone_number)
+  
   try {
     const message = await client.messages.create({
       body: `Vefication Code from Spark On : ${otp}`,
       from: +16815400764,
-      to: phone_number,
+      to: formated_phone_number,
 
     });
 
