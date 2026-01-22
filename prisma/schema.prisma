@@ -76,10 +76,8 @@ enum payout_reque{
 
 model user_customer {
   customer_id Int @id @default(autoincrement())
-  phone_number String? @db.VarChar(15) @unique
-  email String @unique
-  name String?
-  password_hash String
+  phone_number String @db.VarChar(15) @unique
+  name String
   is_active Boolean @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -102,11 +100,11 @@ model electrician_customer {
   electrician_id Int @id @default(autoincrement())
   phone_number String @unique @db.VarChar(15)
   reffreal_code String @unique @db.VarChar(5)
-  full_name String @db.VarChar(150)
+  name String @db.VarChar(150)
   kyc_stat kycstatus @default(PENDING)
-  pan_card_number String @unique @db.VarChar(10)
+  pan_card_number String @unique @db.VarChar(10) @default("PENDING")
   wallet_balance Int @default(0)
-  back_account_json Json
+  back_account_json Json? 
   is_active Boolean @default(true)
   address user_addresses[]
   orders orders[] @relation("Orderelectrician")

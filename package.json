@@ -7,12 +7,14 @@
   "type": "module",
   "main": "./src/server.js",
   "scripts": {
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "worker":"node src/otp_worker.js  "
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "bcryptjs": "^3.0.3",
+    "bullmq": "^5.66.6",
     "cloudinary": "^2.9.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
