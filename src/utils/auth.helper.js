@@ -24,11 +24,11 @@ const checkOtpRestrication = async (phone_number) => {
     ])
 
     if (otpLock) {
-        throw new ValidationError("Account locked. Try again after 30 minutes.");
+        throw new ValidationError("Account locked.Try again after 30 minutes.");
     }
 
     if (spamlock) {
-        throw new ValidationError("Too many OTP requests. Try again after 1 hour.");
+        throw new ValidationError("Too many OTP requests.Try again after 1 hour.");
     }
 
     if (cooldown) {
@@ -100,7 +100,7 @@ export const otprequest = async (phone_number) => {
         await trackOtpRequests(phone_number);
 
 
-        const otp = crypto.randomInt(100000, 999999).toString();
+        const otp = crypto.randomInt(1000, 9999).toString();
 
         const promise = []
 
@@ -134,7 +134,9 @@ export const savedata = async (name, phone_number, role) => {
     try {  
         let user = null ;
 
-        if (role === "CUSTOMER") {
+
+
+        if (role === "Consumer") {
              user = await prisma.user_customer.create({
                 data: {
                     name,
@@ -142,7 +144,7 @@ export const savedata = async (name, phone_number, role) => {
                 }
             })
         }
-        if (role === "ELECTRICIAN") {
+        else if (role === "Electrician") {
             user = await prisma.electrician_customer.create({
                 data: {
                     name,
@@ -150,6 +152,8 @@ export const savedata = async (name, phone_number, role) => {
                     reffreal_code: generateReferralCode(name, phone_number)
                 }
             })
+        }else{
+            throw new ValidationError(`There Role is not Error`)
         }
 
         return user;

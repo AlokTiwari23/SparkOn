@@ -19,7 +19,7 @@ export const registerUser = async (req, res, next) => {
         const { name, phone_number, role } = req.body
 
         if (!name || !phone_number || !role) {
-            next(new ValidationError("All fields are required"))
+            return next(new ValidationError("All fields are required"))
         }
 
         // Checking the phone Number Is valid or Not
@@ -28,30 +28,29 @@ export const registerUser = async (req, res, next) => {
         let existingUser = null;
 
 
-        if (role === "CUSTOMER") {
+        if (role === "Consumer") {
             existingUser = await prisma.user_customer.findUnique({
                 where: {
                     phone_number
                     // So we have the {"eamil":thisisalok1334@gmail.com}
                 }  // we have to into the where {column_name:value}
             })
-        } else if (role === "ELECTRICIAN") {
+        } 
+        if (role === "Electrician") {
             existingUser = await prisma.electrician_customer.findUnique({
                 where: {
                     phone_number
                     // So we have the {"eamil":thisisalok1334@gmail.com}
                 }  // we have to into the where {column_name:value}
             })
-        } else {
-            next(new ValidationError("Invalid Role"))
-        }
+        } 
 
 
 
 
 
         if (existingUser) {
-            next(new ValidationError("User already exists with this phone number"))
+            return next(new ValidationError("User already exists with this phone number"))
 
         }
 
@@ -77,7 +76,7 @@ export const verfiyuser = async (req, res, next) => {
 
         const { phone_number, otp } = req.body
         if (!phone_number || !otp) {
-            next(new ValidationError("All fields are required"))
+            return next(new ValidationError("All fields are required"))
         }
         const [userInfo, saved_otp] = await Promise.all([
             redis.get(`info:${phone_number}`),
@@ -85,11 +84,11 @@ export const verfiyuser = async (req, res, next) => {
         ])
 
         if (!userInfo || !saved_otp) {
-            next(new ValidationError(`Please request a new OTP`))
+            return next(new ValidationError(`Please request a new OTP`))
         }
 
         if (otp !== saved_otp) {
-            next(new ValidationError(`Wrong OTP`))
+            return next(new ValidationError(`Wrong OTP`))
         }
         const { name, role } = JSON.parse(userInfo)
 
@@ -151,11 +150,21 @@ export const loginuser = async (req, res, next) => {
         // Now determine which one was found (if any)
         const user = customerUser || electricianUser;
 
+        if (!user) {
+            return next(new ValidationError("User not found. Please Register first."));
+        }
 
+        // 2. Determine Role & Name
+        const role = customerUser ? "Consumer" : "Electrician";
+        const name = user.name;
+
+        // 3. 🚨 THIS IS THE FIX: Save Info to Redis 🚨
+        // If you skip this, verifyUser will fail!
+        await redis.set(`info:${phone_number}`, JSON.stringify({ name, role }), "EX", 300);
 
 
         if (!user) {
-            next(new ValidationError("User not found"))
+            return next(new ValidationError("User not found"))
         }
 
         await otprequest(phone_number)
