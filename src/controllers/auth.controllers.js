@@ -122,10 +122,10 @@ export const verfiyuser = async (req, res, next) => {
                 name: user.name,
                 role: user.role
             },
-            token: {
+         
                 accessToken,
                 refreshToken
-            }
+            
         })
     } catch (error) {
         next(new ValidationError(error.message))
@@ -249,10 +249,10 @@ export const verifyloginotp = async (req, res, next) => {
                 name: user.name,
                 role: user.role
             },
-            token: {
+            
                 accessToken,
                 refreshToken
-            }
+            
         })
 
 
@@ -260,4 +260,25 @@ export const verifyloginotp = async (req, res, next) => {
         next(new ValidationError(error.message))
     }
 
+}
+
+
+export const resendotp = async(req,res,next)=>{
+    try{const { phone_number } = req.body;
+
+        if (!phone_number) {
+            return next(new ValidationError("Phone number is required"));
+        }
+
+        // Just trigger the OTP request function again
+        await otprequest(phone_number);
+
+        res.status(200).json({
+            success: true,
+            message: "OTP resent successfully"
+        });
+
+    } catch (error) {
+        next(new ValidationError(error.message));
+    }
 }

@@ -54,7 +54,7 @@ const trackOtpRequests = async (phone_number) => {
     if (count === 1) promises.push(redis.expire(otpRequestKey, 3600))
     // it will going to delete the key pair after the first otp 
     // send is 1 Hour..
-    if (count > 5) {
+    if (count>3) {
         promises.push(redis.set(spamlockKey, "locked", "EX", 3600))
 
     }
