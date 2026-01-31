@@ -35,7 +35,7 @@ export const registerUser = async (req, res, next) => {
                     // So we have the {"eamil":thisisalok1334@gmail.com}
                 }  // we have to into the where {column_name:value}
             })
-        } 
+        }
         if (role === "Electrician") {
             existingUser = await prisma.electrician_customer.findUnique({
                 where: {
@@ -43,7 +43,7 @@ export const registerUser = async (req, res, next) => {
                     // So we have the {"eamil":thisisalok1334@gmail.com}
                 }  // we have to into the where {column_name:value}
             })
-        } 
+        }
 
 
 
@@ -122,10 +122,10 @@ export const verfiyuser = async (req, res, next) => {
                 name: user.name,
                 role: user.role
             },
-         
-                accessToken,
-                refreshToken
-            
+
+            accessToken,
+            refreshToken
+
         })
     } catch (error) {
         next(new ValidationError(error.message))
@@ -249,10 +249,10 @@ export const verifyloginotp = async (req, res, next) => {
                 name: user.name,
                 role: user.role
             },
-            
-                accessToken,
-                refreshToken
-            
+
+            accessToken,
+            refreshToken
+
         })
 
 
@@ -263,8 +263,9 @@ export const verifyloginotp = async (req, res, next) => {
 }
 
 
-export const resendotp = async(req,res,next)=>{
-    try{const { phone_number } = req.body;
+export const resendotp = async (req, res, next) => {
+    try {
+        const { phone_number } = req.body;
 
         if (!phone_number) {
             return next(new ValidationError("Phone number is required"));
@@ -281,4 +282,62 @@ export const resendotp = async(req,res,next)=>{
     } catch (error) {
         next(new ValidationError(error.message));
     }
+}
+
+
+export const adminlogin = async (req, res, next) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return next(new ValidationError(`All Field's required`))
+    }
+
+    try {
+
+        const admin = await prisma.admin.findUnique({ where: { email } });
+
+        if (!admin) {
+            return res.status(404).json({
+                message: "Invalid credentials"
+            })
+        }
+
+        const isMatch = await bcrypt.compare(password, admin.password)
+
+        if (!isMatch) {
+            return res.status(401).json({
+                message: 'Password Incorrect'
+            })
+        }
+        const accessToken = jwt.sign({ id: admin.id, email: admin.email, role: 'Admin' }, process.env.ACCESS_TOKEN_SECRET, {
+            expiresIn: "15m"
+
+        })
+
+        const refreshToken = jwt.sign({ id: admin.id, email: admin.email, role: 'Admin' }, process.env.REFRESH_TOKEN_SECRET, {
+            expiresIn: "7d"
+
+        })
+
+        // store the refresh and access token in an httpOnly secure cookies
+
+        setCookie(res, "accessToken", accessToken)
+        setCookie(res, "refreshToken", refreshToken)
+
+        res.json({
+            success: true,
+            message: "Login Successfully",
+            accessToken,
+            refreshToken,
+            admin: {
+                id: admin.id,
+                email: admin.email
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({ message: "Server error. Please try again." });
+    }
+
+
 }

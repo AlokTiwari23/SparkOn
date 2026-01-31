@@ -1,0 +1,28 @@
+/* index.css */
+
+/* 1. Remove the default 'Center everything' rule */
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  background-color: #242424; /* Fallback color */
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  /* CRITICAL: display: block ensures it takes full width */
+  display: block; 
+  min-width: 100%;
+  min-height: 100vh;
+}
+
+/* 2. Make sure the React Root div also fills the screen */
+#root {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left; /* specific reset */
+}
