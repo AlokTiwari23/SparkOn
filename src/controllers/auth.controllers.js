@@ -357,7 +357,7 @@ export const adminlogin = async (req, res, next) => {
 
 
 export const userlogout = async (req, res, next) => {
-    
+
 
     // 2. Destroy the Refresh Token Cookie (Crucial!)
     res.clearCookie('refreshToken', {
@@ -373,7 +373,7 @@ export const userlogout = async (req, res, next) => {
 }
 
 export const adminlogout = async (req, res, next) => {
-    
+
     res.clearCookie('refreshToken', {
         httpOnly: true,
         secure: true,
@@ -407,7 +407,7 @@ export const refreshUserToken = async (req, res, next) => {
 
 
 
-        //    / 3. Create clean payload
+            //    / 3. Create clean payload
             const payload = {
                 id: decoded.id,
                 name: decoded.name,
@@ -474,11 +474,11 @@ export const refreshAdminToken = async (req, res, next) => {
         jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, async (error, decoded) => {
             if (error) return res.status(403).json({ message: `Invalid Token` })
 
-             const payload = {
+            const payload = {
                 id: decoded.id,
-                email:decoded.email,
+                email: decoded.email,
                 role: decoded.role,
-                
+
             };
 
             // 4. Generate NEW Tokens
@@ -499,9 +499,9 @@ export const refreshAdminToken = async (req, res, next) => {
                 sameSite: 'None',
                 maxAge: 90 * 24 * 60 * 60 * 1000 // 7 days
             });
-            
 
-           res.json({ accessToken: newAccessToken });
+
+            res.json({ accessToken: newAccessToken });
         })
 
 
@@ -586,5 +586,39 @@ export const getAdmindata = async (req, res, next) => {
         return res.status(500).json({
             message: 'Server in Finding Admin'
         })
+    }
+}
+
+
+
+
+export const deleteUseAccount = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const role = req.user.role;
+
+        // Here we make the soft deleted So the order data is not deleted 
+        // Mark user as deleted (Soft Dalete)
+        if (role === 'Consumer') {
+            await prisma.UserCustomer.update({
+                where: { id: userId },
+                data: { isActive: false, deletedAt: new Date() } // Ensure schema has these fields
+            })
+        } else if (role === 'Electrician') {
+            await prisma.ElectricianCustomer.update({
+                where: { id: userId },
+                data: { isActive: false, deletedAt: new Date() }
+            });
+        }
+        res.clearCookie('refreshToken', { httpOnly: true, secure: true, sameSite: 'None' });
+
+        res.status(200).json({ success: true, message: "Account deleted successfully" });
+
+        
+    } catch (error) {
+        return res.status(500).json({
+            message: `Server in Finding Admin ${error}`
+        })
+
     }
 }

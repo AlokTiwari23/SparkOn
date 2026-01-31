@@ -13,7 +13,7 @@ authrouter.post("/resend-otp", resendotp);
 authrouter.post("/user/logout" , userlogout)
 authrouter.post("/user/refresh" , refreshUserToken)
 authrouter.get("/user/me" , verfiyToken , getUserdata)
-
+authrouter.delete("/delete-account" , verfiyToken, deleteUserAccount)
 
 // Admin Routes
 authrouter.post("/admin-login" , adminlogin)
