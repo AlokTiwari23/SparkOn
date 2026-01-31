@@ -3,6 +3,7 @@ import { ValidationError } from "../middlewares/errorHandler/index.js";
 import redis from "../db/redis.js";
 import prisma from "../db/db.prisam.js"
 import sendotp from "./send-phone-otp.js";
+import { create } from "domain";
 
 
 
@@ -136,17 +137,38 @@ export const savedata = async (name, phone_number, role) => {
 
         // Ensure role matches exactly (Case Sensitive!)
         if (role === "Consumer") {
-             user = await prisma.UserCustomer.create({
-                data: { name, phone_number }
+             user = await prisma.UserCustomer.upsert({
+                where :{phone_number},
+                // If there Creating New User
+                create:{
+                    name,
+                    phone_number,
+                    isActive:true // Default
+                },
+                // If updating  (Reactivating old user):
+
+                update:{
+                    name,  // Update name if they changed it
+                    isActive:true, //WAKE UP THE USER
+                    deletedAt:null  // remove the deletion date
+                }
+
             });
         }
         else if (role === "Electrician") {
-            user = await prisma.ElectricianCustomer.create({
-                data: {
+            user = await prisma.ElectricianCustomer.upsert({
+                where:{phone_number},
+                create:{
                     name,
                     phone_number,
                     referral_code: generateReferralCode(name, phone_number)
+                },
+                update:{
+                    name,  // Update name if they changed it
+                    isActive:true, //WAKE UP THE USER
+                    deletedAt:null  // remove the deletion date
                 }
+
             });
         } else {
             // FIX: Clearer error message so you know what went wrong

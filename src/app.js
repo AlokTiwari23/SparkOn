@@ -24,23 +24,30 @@ app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(cookieParser());
 
-const limiter = ratelimit({
-    windowMs: 15 * 60 * 1000,//15 minu
-
-    max: (req) => (req.user ? 1000 : 100), // for login user they will give the 1000 req and for not logined user 100 request
-    message: { error: "Too many requests from this IP, please try again after 15 minutes" },
-    standardHeaders: true,
-    legacyHeaders: true,
-    // keyGenerator:(req)=>{
-    //     return req.ip
-    // }
+const authlimiter = ratelimit({
+    windowMs:15*60*1000,  // 15 Minutes
+    max: 20 ,// maximum Only 20 attempts per 15 mins
+    message:{message:"Too many login Attempts . Please try again later"},
+    standardHeaders:true,
+    legacyHeaders:false
 
 })
 
-app.use(limiter)
+
+// This allows normal usage but stops DDoS attacks
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 500, // Generous! 500 requests per 15 mins (plenty for shopping)
+    message: { message: "Too many requests, please slow down." },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+
 //Rooutes
 
-app.use("/api", authrouter)
+app.use("/api/auth",authlimiter, authrouter)
+app.use("/api",apiLimiter)
 
 app.use(errorMiddleware)
 

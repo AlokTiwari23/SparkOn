@@ -50,8 +50,8 @@ export const registerUser = async (req, res, next) => {
 
 
         if (existingUser) {
-            return next(new ValidationError("User already exists with this phone number"))
-
+            if(existingUser.isActive === true){
+                return next(new ValidationError("User already exists with this phone number"))    }
         }
 
         //  set the role and phone_number in the redis data base 
@@ -614,7 +614,7 @@ export const deleteUseAccount = async (req, res, next) => {
 
         res.status(200).json({ success: true, message: "Account deleted successfully" });
 
-        
+
     } catch (error) {
         return res.status(500).json({
             message: `Server in Finding Admin ${error}`
