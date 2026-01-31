@@ -1,72 +1,58 @@
 import prisma from "../../db/db.prisam";
 import jwt, { decode } from "jsonwebtoken";
 
-const isAuthenticated = async (req, res, next) => {
-    try {
-        const token = req.cookies["accessToken"] ||
-            req.cookies["seller-acccess-token"] ||
-            req.headers.authorization?.split(" ")[1];
 
-        if (!token) {
-            return res.status(401).json({ message: "Unauthorized ! Token missing" })
+
+export const verfiyToken =  async(req,res,next) =>{
+    try{
+
+         let token;
+
+        //Check1 : Look in Cookies (Web Admin usually uses this)
+
+        if(req.cookies && req.cookies.accessToken){
+            token = req.cookies.accessToken;
+        }
+        
+        // Check 2 : Look inHeader (Mobile App usually uses this)
+        // Formate : "Bearer eyJhGciOi...."
+
+        else if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+            token = req.headers.authorization.split(' ')[1];
         }
 
-        // Verfiy token
 
-        const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
-
-        if (!decode) {
-            return res.status(401).json(
-                {
-                    message: "Unauthorized! Invalid token."
-                }
-            )
+        // If no token found anywhere
+        if(!token){
+            return res.status(401).json({message:"Access Denied. No token provided"})
         }
 
-        let account ;
 
-        if (decode.role === "CUSTOMER") {
-             account = await prisma.user_customer.findUnique({
-                where: {
-                    id: decoded.id
-                }
+        // Verfiy the token
 
-            })
-            req.customer = account
-        }
-        if (decode.role === "ELECTRICIAN") {
-             account = await prisma.electrician_customer.findUnique({
-                where: {
-                    id: decoded.id
-                }
+        const decoded = jwt.verify(token , process.env.ACCESS_TOKEN_SECRET)
 
-            })
-            req.electrican = account
-        }
-        if (decode.role === "Admin") {
-             account = await prisma.admin.findUnique({
-                where: {
-                    id: decoded.id
-                }
+        // Attacted user info to the request object so controllers can use it
+        // We use 'req.user' fro EVERYONE (Admin , Electrican , Consumer)
+        req.user = decoded ;
 
-            })
-            req.admin = account
-        }
+        next();
 
-        if(!account){
-            return res.status(404).json({
-                message:"Account not found!"
-            })
-        }
-        req.role = decoded.role;
-        return next()
-
-    } catch (error) {
-        return res.status(401).json({
-            message:"Unauthorized ! Token expired or Invalid token ..."
+    }catch(error){
+        return res.status(500).json({
+            message:'Error in the Verfity Middelware'
         })
-
     }
+
 }
 
-export default isAuthenticated
+
+export const verfiyAdmin = (req,res,next) =>{
+    if(req.user && req.user.role === 'Admin'){
+        next();
+    }else{
+        return res.status(403).json({
+            message:"Access Denied. Admins only"
+        })
+    }
+}

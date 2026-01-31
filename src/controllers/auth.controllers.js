@@ -102,12 +102,12 @@ export const verfiyuser = async (req, res, next) => {
             redis.del(`otp:${phone_number}`)
         ])
         //  Creating and refresh and access token
-        const accessToken = jwt.sign({ id: user.id, name: user.name, role , phone_number : user,phone_number }, process.env.ACCESS_TOKEN_SECRET, {
+        const accessToken = jwt.sign({ id: user.id, name: user.name, role, phone_number: user, phone_number }, process.env.ACCESS_TOKEN_SECRET, {
             expiresIn: "15m"
 
         })
 
-        const refreshToken = jwt.sign({ id: user.id, name: user.name, role , phone_number : user.phone_number }, process.env.REFRESH_TOKEN_SECRET, {
+        const refreshToken = jwt.sign({ id: user.id, name: user.name, role, phone_number: user.phone_number }, process.env.REFRESH_TOKEN_SECRET, {
             expiresIn: "7d"
 
         })
@@ -212,10 +212,10 @@ export const verifyloginotp = async (req, res, next) => {
 
         if (customerUser) {
             user = customerUser;
-            role = "CUSTOMER";
+            role = "Consumer";
         } else if (electricianUser) {
             user = electricianUser;
-            role = "ELECTRICIAN";
+            role = "Electrician";
         }
 
 
@@ -229,12 +229,12 @@ export const verifyloginotp = async (req, res, next) => {
             redis.del(`otp:${phone_number}`)
         ])
         //  Creating and refresh and access token
-        const accessToken = jwt.sign({ id: user.id, name: user.name, role , phone_number : user.phone_number }, process.env.ACCESS_TOKEN_SECRET, {
+        const accessToken = jwt.sign({ id: user.id, name: user.name, role, phone_number: user.phone_number }, process.env.ACCESS_TOKEN_SECRET, {
             expiresIn: "15m"
 
         })
 
-        const refreshToken = jwt.sign({ id: user.id, name: user.name, role , phone_number : user.phone_number }, process.env.REFRESH_TOKEN_SECRET, {
+        const refreshToken = jwt.sign({ id: user.id, name: user.name, role, phone_number: user.phone_number }, process.env.REFRESH_TOKEN_SECRET, {
             expiresIn: "7d"
 
         })
@@ -340,7 +340,7 @@ export const adminlogin = async (req, res, next) => {
 }
 
 
-export const userlogout = async(req,res,next) =>{
+export const userlogout = async (req, res, next) => {
     res.clearCookie('accessToken', {
         httpOnly: true,
         secure: true,
@@ -355,101 +355,176 @@ export const userlogout = async(req,res,next) =>{
     });
 
     return res.status(200).json({
-        success:true,
-        message:"Logged out successfully"
+        success: true,
+        message: "Logged out successfully"
     })
 }
 
-export const adminlogout = async(req,res,next) =>{
-    res.clearCookie('accessToken',{
-        httpOnly:true,
-        secure:true,
-        sameSite:'None'
+export const adminlogout = async (req, res, next) => {
+    res.clearCookie('accessToken', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'None'
     })
     res.clearCookie('refreshToken', {
         httpOnly: true,
         secure: true,
         sameSite: 'None'
     });
-    return res.status(200).json({ 
-        success: true, 
-        message: "Logged out successfully" 
+    return res.status(200).json({
+        success: true,
+        message: "Logged out successfully"
     });
 }
 
 
-export const refreshUserToken = async(req,res,next) =>{
-    try{
-        const cookies =req.cookies;
+export const refreshUserToken = async (req, res, next) => {
+    try {
+        const cookies = req.cookies;
 
-        if(!cookies?.refreshToken){
+        if (!cookies?.refreshToken) {
             return res.status(401).json({
-                'message':`There is not the Token`
-            }); 
+                'message': `There is not the Token`
+            });
         }
 
         const refreshToken = cookies.refreshToken
 
-        jwt.verify(refreshToken , process.env.REFRESH_TOKEN_SECRET , async(error, decode) =>{
-            if(err) return res.status(403).json({message:`Invalid Token`})
+        jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, async (error, decode) => {
+            if (err) return res.status(403).json({ message: `Invalid Token` })
 
 
 
             const accessToken = jwt.sign(
                 {
-                    id : decode.id,
-                    name:decode.name,
-                    role:decode.role,
-                    phone_number:decode.phone_number
+                    id: decode.id,
+                    name: decode.name,
+                    role: decode.role,
+                    phone_number: decode.phone_number
                 },
                 process.env.ACCESS_TOKEN_SECRET,
-                {expiresIn:'15m'}
+                { expiresIn: '15m' }
             );
 
-            res.json({accessToken})
+            res.json({ accessToken })
         })
 
-    }catch(error){
+    } catch (error) {
         res.status(500).json({ message: "Server Error" });
     }
 
 }
 
-export const refreshAdminToken = async(req,res,next) =>{
+export const refreshAdminToken = async (req, res, next) => {
 
-    try{
-        const cookies =req.cookies;
+    try {
+        const cookies = req.cookies;
 
-        if(!cookies?.refreshToken){
+        if (!cookies?.refreshToken) {
             return res.status(401).json({
-                'message':`There is not the Token`
-            }); 
+                'message': `There is not the Token`
+            });
         }
 
         const refreshToken = cookies.refreshToken
 
-        jwt.verify(refreshToken , process.env.REFRESH_TOKEN_SECRET , async(error, decode) =>{
-            if(err) return res.status(403).json({message:`Invalid Token`})
+        jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, async (error, decode) => {
+            if (err) return res.status(403).json({ message: `Invalid Token` })
 
 
 
             const accessToken = jwt.sign(
                 {
-                    id : decode.id,
-                    email:decode.email,
-                    role:'Admin'
+                    id: decode.id,
+                    email: decode.email,
+                    role: 'Admin'
                 },
                 process.env.ACCESS_TOKEN_SECRET,
-                {expiresIn:'15m'}
+                { expiresIn: '15m' }
             );
 
-            res.json({accessToken})
+            res.json({ accessToken })
         })
 
 
-    }catch(error){
+    } catch (error) {
         res.status(500).json({ message: "Server Error" });
 
     }
 
+}
+
+
+export const getUserdata = async (req, res, next) => {
+    try {
+
+        // The Middleware (verfiy token) alrready attached the user to req.user
+        // So just find them  in the db
+        let user
+        if (req.user.role === "Electrician") {
+            user = await prisma.electrician_customer.findUnique({
+                where: { id: req.user.id },
+                select: {
+                    id: true,
+                    phone_number: true,
+                    name: true,
+                    // Do NOT select password!
+                }
+            })
+        }
+        if (req.user.role === "Consumer") {
+            user = await prisma.electrician_customer.findUnique({
+                where: { id: req.user.id },
+                select: {
+                    id: true,
+                    phone_number: true,
+                    name: true,
+                    // Do NOT select password!
+                }
+            })
+        }
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not Found"
+            })
+        }
+        res.json({ success: true, user });
+
+    } catch (error) {
+        res.status(500).json({
+            message: `Server Errro`
+        })
+    }
+}
+
+
+
+export const getAdmindata = async (req, res, next) => {
+    // The Middleware (verfiy token) already attached the user to req.user
+    // So just search in the database
+
+    try {
+        const admin = await prisma.admin.findUnique({
+            where: {
+                id: req.user.id
+            },
+            select: {
+                id: true,
+                email: true
+            }
+
+        })
+        if (!admin) {
+            return res.status(404).json({
+                message: "User not Found"
+            })
+        }
+        res.json({ success: true, admin });
+
+    } catch (error) {
+        return res.status(500).json({
+            message: 'Server in Finding Admin'
+        })
+    }
 }

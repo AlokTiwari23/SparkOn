@@ -1,7 +1,7 @@
 import express from "express"
-import {verfiyuser , registerUser, loginuser, verifyloginotp,resendotp, adminlogin ,userlogout, adminlogout, refreshUserToken, refreshAdminToken } from "../controllers/auth.controllers.js"
+import {verfiyuser , registerUser, loginuser, verifyloginotp,resendotp, adminlogin ,userlogout, adminlogout, refreshUserToken, refreshAdminToken, getUserdata, getAdmindata } from "../controllers/auth.controllers.js"
 const authrouter =  express.Router()
-
+import { verfiyAdmin , verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
 
 // Users Route
 authrouter.post("/user-register",registerUser)
@@ -11,14 +11,14 @@ authrouter.post("/verify-login", verifyloginotp)
 authrouter.post("/resend-otp", resendotp);
 authrouter.post("/user/logout" , userlogout)
 authrouter.post("/user/refresh" , refreshUserToken)
-authrouter.get("/user/me")
+authrouter.get("/user/me" , verfiyToken , getUserdata)
 
 
 // Admin Routes
 authrouter.post("/admin-login" , adminlogin)
 authrouter.post("/admin/logout", adminlogout)
 authrouter.post("/auth/refresh" , refreshAdminToken )
-authrouter.get("admin/me")
+authrouter.get("/admin/me" , verfiyToken , verfiyAdmin, getAdmindata)
 
 
 
