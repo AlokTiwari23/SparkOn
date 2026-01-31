@@ -341,3 +341,118 @@ export const adminlogin = async (req, res, next) => {
 
 
 }
+
+
+export const userlogout = async(req,res,next) =>{
+    res.clearCookie('accessToken', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'None'
+    });
+
+    // 2. Destroy the Refresh Token Cookie (Crucial!)
+    res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'None'
+    });
+
+    return res.status(200).json({
+        success:true,
+        message:"Logged out successfully"
+    })
+}
+
+export const adminlogout = async(req,res,next) =>{
+    res.clearCookie('accessToken',{
+        httpOnly:true,
+        secure:true,
+        sameSite:'None'
+    })
+    res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'None'
+    });
+    return res.status(200).json({ 
+        success: true, 
+        message: "Logged out successfully" 
+    });
+}
+
+
+export const refreshUserToken = async(req,res,next) =>{
+    try{
+        const cookies =req.cookies;
+
+        if(!cookies?.refreshToken){
+            return res.status(401).json({
+                'message':`There is not the Token`
+            }); 
+        }
+
+        const refreshToken = cookies.refreshToken
+
+        jwt.verify(refreshToken , process.env.REFRESH_TOKEN_SECRET , async(error, decode) =>{
+            if(err) return res.status(403).json({message:`Invalid Token`})
+
+
+
+            const accessToken = jwt.sign(
+                {
+                    id : decode.id,
+                    name:decode.name,
+                    role:decode.role,
+                    phone_number:decode.phone_number
+                },
+                process.env.ACCESS_TOKEN_SECRET,
+                {expiresIn:'15m'}
+            );
+
+            res.json({accessToken})
+        })
+
+    }catch(error){
+        res.status(500).json({ message: "Server Error" });
+    }
+
+}
+
+export const refreshAdminToken = async(req,res,next) =>{
+
+    try{
+        const cookies =req.cookies;
+
+        if(!cookies?.refreshToken){
+            return res.status(401).json({
+                'message':`There is not the Token`
+            }); 
+        }
+
+        const refreshToken = cookies.refreshToken
+
+        jwt.verify(refreshToken , process.env.REFRESH_TOKEN_SECRET , async(error, decode) =>{
+            if(err) return res.status(403).json({message:`Invalid Token`})
+
+
+
+            const accessToken = jwt.sign(
+                {
+                    id : decode.id,
+                    email:decode.email,
+                    role:'Admin'
+                },
+                process.env.ACCESS_TOKEN_SECRET,
+                {expiresIn:'15m'}
+            );
+
+            res.json({accessToken})
+        })
+
+
+    }catch(error){
+        res.status(500).json({ message: "Server Error" });
+
+    }
+
+}
