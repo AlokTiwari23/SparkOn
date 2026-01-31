@@ -3,9 +3,12 @@ import prisma from "../db/db.prisam.js"
 import bcrypt from "bcryptjs"
 import { ValidationError } from "../middlewares/errorHandler/index.js"
 import redis from "../db/redis.js"
-import jwt from "jsonwebtoken"
+import jwt, { decode } from "jsonwebtoken"
 import { setCookie } from "../utils/setCookie.js"
 import { set } from "mongoose"
+import { success } from "zod"
+import { http } from "winston"
+import { cookie } from "express-validator"
 // Registration a New Users
 
 // # First Collect User Data  -> Store in the Redis (Temprorarily) -> VerifyOTP -> Save to Database only after success
@@ -99,12 +102,12 @@ export const verfiyuser = async (req, res, next) => {
             redis.del(`otp:${phone_number}`)
         ])
         //  Creating and refresh and access token
-        const accessToken = jwt.sign({ id: user.id, name: user.name, role }, process.env.ACCESS_TOKEN_SECRET, {
+        const accessToken = jwt.sign({ id: user.id, name: user.name, role , phone_number : user,phone_number }, process.env.ACCESS_TOKEN_SECRET, {
             expiresIn: "15m"
 
         })
 
-        const refreshToken = jwt.sign({ id: user.id, name: user.name, role }, process.env.REFRESH_TOKEN_SECRET, {
+        const refreshToken = jwt.sign({ id: user.id, name: user.name, role , phone_number : user.phone_number }, process.env.REFRESH_TOKEN_SECRET, {
             expiresIn: "7d"
 
         })
@@ -226,12 +229,12 @@ export const verifyloginotp = async (req, res, next) => {
             redis.del(`otp:${phone_number}`)
         ])
         //  Creating and refresh and access token
-        const accessToken = jwt.sign({ id: user.id, name: user.name, role }, process.env.ACCESS_TOKEN_SECRET, {
+        const accessToken = jwt.sign({ id: user.id, name: user.name, role , phone_number : user.phone_number }, process.env.ACCESS_TOKEN_SECRET, {
             expiresIn: "15m"
 
         })
 
-        const refreshToken = jwt.sign({ id: user.id, name: user.name, role }, process.env.REFRESH_TOKEN_SECRET, {
+        const refreshToken = jwt.sign({ id: user.id, name: user.name, role , phone_number : user.phone_number }, process.env.REFRESH_TOKEN_SECRET, {
             expiresIn: "7d"
 
         })
@@ -287,11 +290,9 @@ export const resendotp = async (req, res, next) => {
 
 export const adminlogin = async (req, res, next) => {
     const { email, password } = req.body;
-
     if (!email || !password) {
         return next(new ValidationError(`All Field's required`))
     }
-
     try {
 
         const admin = await prisma.admin.findUnique({ where: { email } });
@@ -301,9 +302,7 @@ export const adminlogin = async (req, res, next) => {
                 message: "Invalid credentials"
             })
         }
-
         const isMatch = await bcrypt.compare(password, admin.password)
-
         if (!isMatch) {
             return res.status(401).json({
                 message: 'Password Incorrect'
@@ -311,9 +310,7 @@ export const adminlogin = async (req, res, next) => {
         }
         const accessToken = jwt.sign({ id: admin.id, email: admin.email, role: 'Admin' }, process.env.ACCESS_TOKEN_SECRET, {
             expiresIn: "15m"
-
         })
-
         const refreshToken = jwt.sign({ id: admin.id, email: admin.email, role: 'Admin' }, process.env.REFRESH_TOKEN_SECRET, {
             expiresIn: "7d"
 
