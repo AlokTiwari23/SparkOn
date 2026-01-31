@@ -5,10 +5,7 @@ import { ValidationError } from "../middlewares/errorHandler/index.js"
 import redis from "../db/redis.js"
 import jwt, { decode } from "jsonwebtoken"
 import { setCookie } from "../utils/setCookie.js"
-import { set } from "mongoose"
-import { success } from "zod"
-import { http } from "winston"
-import { cookie } from "express-validator"
+
 // Registration a New Users
 
 // # First Collect User Data  -> Store in the Redis (Temprorarily) -> VerifyOTP -> Save to Database only after success
@@ -32,7 +29,7 @@ export const registerUser = async (req, res, next) => {
 
 
         if (role === "Consumer") {
-            existingUser = await prisma.user_customer.findUnique({
+            existingUser = await prisma.UserCustomer.findUnique({
                 where: {
                     phone_number
                     // So we have the {"eamil":thisisalok1334@gmail.com}
@@ -40,7 +37,7 @@ export const registerUser = async (req, res, next) => {
             })
         }
         if (role === "Electrician") {
-            existingUser = await prisma.electrician_customer.findUnique({
+            existingUser = await prisma.ElectricianCustomer.findUnique({
                 where: {
                     phone_number
                     // So we have the {"eamil":thisisalok1334@gmail.com}
@@ -74,64 +71,84 @@ export const registerUser = async (req, res, next) => {
 }
 
 
+
 export const verfiyuser = async (req, res, next) => {
     try {
+        const { phone_number, otp } = req.body;
 
-        const { phone_number, otp } = req.body
         if (!phone_number || !otp) {
-            return next(new ValidationError("All fields are required"))
+            return next(new ValidationError("All fields are required"));
         }
+
+        // 1. Get Data from Redis
         const [userInfo, saved_otp] = await Promise.all([
             redis.get(`info:${phone_number}`),
             redis.get(`otp:${phone_number}`)
-        ])
+        ]);
 
         if (!userInfo || !saved_otp) {
-            return next(new ValidationError(`Please request a new OTP`))
+            return next(new ValidationError(`OTP expired. Please request a new one.`));
         }
 
         if (otp !== saved_otp) {
-            return next(new ValidationError(`Wrong OTP`))
+            return next(new ValidationError(`Wrong OTP`));
         }
-        const { name, role } = JSON.parse(userInfo)
 
-        const user = await savedata(name, phone_number, role)
+        const { name, role } = JSON.parse(userInfo);
 
+        // 2. Save User to Database
+        // This function now handles the error correctly
+        const user = await savedata(name, phone_number, role);
+
+        // 3. Clear Redis
         await Promise.all([
             redis.del(`info:${phone_number}`),
             redis.del(`otp:${phone_number}`)
-        ])
-        //  Creating and refresh and access token
-        const accessToken = jwt.sign({ id: user.id, name: user.name, role, phone_number: user, phone_number }, process.env.ACCESS_TOKEN_SECRET, {
-            expiresIn: "15m"
+        ]);
 
-        })
+        // 4. Generate Tokens
+        // FIX: Added 'id' and fixed the 'phone_number' bug
+        const accessToken = jwt.sign(
+            {
+                id: user.id,
+                name: user.name,
+                role: role, // Ensure this role string is correct
+                phone_number: user.phone_number
+            },
+            process.env.ACCESS_TOKEN_SECRET,
+            { expiresIn: "15m" }
+        );
 
-        const refreshToken = jwt.sign({ id: user.id, name: user.name, role, phone_number: user.phone_number }, process.env.REFRESH_TOKEN_SECRET, {
-            expiresIn: "7d"
+        const refreshToken = jwt.sign(
+            {
+                id: user.id,
+                name: user.name,
+                role: role,
+                phone_number: user.phone_number
+            },
+            process.env.REFRESH_TOKEN_SECRET,
+            { expiresIn: "90d" }
+        );
 
-        })
+        // 5. Set Cookies
+        // res.cookie('accessToken', accessToken, { httpOnly: true, secure: true, sameSite: 'None' });
+        res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true, sameSite: 'None', maxAge: 90 * 24 * 60 * 60 * 1000 });
 
-        // store the refresh and access token in an httpOnly secure cookies
-
-        setCookie(res, "accessToken", accessToken)
-        setCookie(res, "refreshToken", refreshToken)
-
+        // 6. Send Response
         res.status(200).json({
             success: true,
             message: "User registered successfully",
+            accessToken, // Frontend needs this!
             user: {
                 id: user.id,
                 name: user.name,
-                role: user.role
-            },
+                role: role // 'Consumer' or 'Electrician'
+            }
+        });
 
-            accessToken,
-            refreshToken
-
-        })
     } catch (error) {
-        next(new ValidationError(error.message))
+        // Pass the error to your error handler middleware
+        next(error);
     }
 }
 
@@ -146,8 +163,8 @@ export const loginuser = async (req, res, next) => {
         }
         // Run both queries at the exact same time
         const [customerUser, electricianUser] = await Promise.all([
-            prisma.user_customer.findUnique({ where: { phone_number } }),
-            prisma.electrician_customer.findUnique({ where: { phone_number } })
+            prisma.UserCustomer.findUnique({ where: { phone_number } }),
+            prisma.ElectricianCustomer.findUnique({ where: { phone_number } })
         ]);
 
         // Now determine which one was found (if any)
@@ -202,8 +219,8 @@ export const verifyloginotp = async (req, res, next) => {
 
         // 🚀 FIX 1: Capture the variables!
         const [customerUser, electricianUser] = await Promise.all([
-            prisma.user_customer.findUnique({ where: { phone_number } }),
-            prisma.electrician_customer.findUnique({ where: { phone_number } })
+            prisma.UserCustomer.findUnique({ where: { phone_number } }),
+            prisma.ElectricianCustomer.findUnique({ where: { phone_number } })
         ]);
 
         // 🚀 FIX 2: Determine User AND Role
@@ -235,13 +252,13 @@ export const verifyloginotp = async (req, res, next) => {
         })
 
         const refreshToken = jwt.sign({ id: user.id, name: user.name, role, phone_number: user.phone_number }, process.env.REFRESH_TOKEN_SECRET, {
-            expiresIn: "7d"
+            expiresIn: "90d"
 
         })
 
         // store the refresh and access token in an httpOnly secure cookies
 
-        setCookie(res, "accessToken", accessToken)
+        // setCookie(res, "accessToken", accessToken)
         setCookie(res, "refreshToken", refreshToken)
 
         res.status(200).json({
@@ -253,8 +270,7 @@ export const verifyloginotp = async (req, res, next) => {
                 role: user.role
             },
 
-            accessToken,
-            refreshToken
+            accessToken
 
         })
 
@@ -295,7 +311,7 @@ export const adminlogin = async (req, res, next) => {
     }
     try {
 
-        const admin = await prisma.admin.findUnique({ where: { email } });
+        const admin = await prisma.Admin.findUnique({ where: { email } });
 
         if (!admin) {
             return res.status(404).json({
@@ -312,20 +328,20 @@ export const adminlogin = async (req, res, next) => {
             expiresIn: "15m"
         })
         const refreshToken = jwt.sign({ id: admin.id, email: admin.email, role: 'Admin' }, process.env.REFRESH_TOKEN_SECRET, {
-            expiresIn: "7d"
+            expiresIn: "90d"
 
         })
 
         // store the refresh and access token in an httpOnly secure cookies
 
-        setCookie(res, "accessToken", accessToken)
+        // setCookie(res, "accessToken", accessToken)
         setCookie(res, "refreshToken", refreshToken)
 
         res.json({
             success: true,
             message: "Login Successfully",
             accessToken,
-            refreshToken,
+
             admin: {
                 id: admin.id,
                 email: admin.email
@@ -341,11 +357,7 @@ export const adminlogin = async (req, res, next) => {
 
 
 export const userlogout = async (req, res, next) => {
-    res.clearCookie('accessToken', {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'None'
-    });
+    
 
     // 2. Destroy the Refresh Token Cookie (Crucial!)
     res.clearCookie('refreshToken', {
@@ -361,11 +373,7 @@ export const userlogout = async (req, res, next) => {
 }
 
 export const adminlogout = async (req, res, next) => {
-    res.clearCookie('accessToken', {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'None'
-    })
+    
     res.clearCookie('refreshToken', {
         httpOnly: true,
         secure: true,
@@ -390,23 +398,58 @@ export const refreshUserToken = async (req, res, next) => {
 
         const refreshToken = cookies.refreshToken
 
-        jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, async (error, decode) => {
-            if (err) return res.status(403).json({ message: `Invalid Token` })
+        // refresh token 
+
+        jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, async (error, decoded) => {
+            if (error) {
+                return res.status(403).json({ message: `Invalid Token` })
+            }
 
 
 
-            const accessToken = jwt.sign(
-                {
-                    id: decode.id,
-                    name: decode.name,
-                    role: decode.role,
-                    phone_number: decode.phone_number
-                },
+        //    / 3. Create clean payload
+            const payload = {
+                id: decoded.id,
+                name: decoded.name,
+                role: decoded.role,
+                phone_number: decoded.phone_number
+            };
+
+            // 4. Generate NEW Tokens
+            const newAccessToken = jwt.sign(
+                payload,
                 process.env.ACCESS_TOKEN_SECRET,
                 { expiresIn: '15m' }
             );
 
-            res.json({ accessToken })
+            const newRefreshToken = jwt.sign(
+                payload,
+                process.env.REFRESH_TOKEN_SECRET,
+                { expiresIn: '7d' }
+            );
+
+            // 5. UPDATE COOKIES (The "Double Update" Strategy)
+
+            // Update Refresh Token (So it rotates)
+            res.cookie('refreshToken', newRefreshToken, {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'None',
+                maxAge: 90 * 24 * 60 * 60 * 1000 // 7 days
+            });
+
+            // ⬇️ THIS IS THE PART YOU ASKED ABOUT ⬇️
+            // Update Access Token Cookie (So middleware sees the new one too!)
+            // res.cookie('accessToken', newAccessToken, {
+            //     httpOnly: true,
+            //     secure: true,
+            //     sameSite: 'None',
+            //     maxAge: 15 * 60 * 1000 // 15 minutes
+            // });
+            // ⬆️ END OF NEW PART ⬆️
+
+            // 6. Send response to frontend
+            res.json({ accessToken: newAccessToken });
         })
 
     } catch (error) {
@@ -428,22 +471,37 @@ export const refreshAdminToken = async (req, res, next) => {
 
         const refreshToken = cookies.refreshToken
 
-        jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, async (error, decode) => {
-            if (err) return res.status(403).json({ message: `Invalid Token` })
+        jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, async (error, decoded) => {
+            if (error) return res.status(403).json({ message: `Invalid Token` })
 
+             const payload = {
+                id: decoded.id,
+                email:decoded.email,
+                role: decoded.role,
+                
+            };
 
-
-            const accessToken = jwt.sign(
-                {
-                    id: decode.id,
-                    email: decode.email,
-                    role: 'Admin'
-                },
+            // 4. Generate NEW Tokens
+            const newAccessToken = jwt.sign(
+                payload,
                 process.env.ACCESS_TOKEN_SECRET,
                 { expiresIn: '15m' }
             );
 
-            res.json({ accessToken })
+            const newRefreshToken = jwt.sign(
+                payload,
+                process.env.REFRESH_TOKEN_SECRET,
+                { expiresIn: '90d' }
+            );
+            res.cookie('refreshToken', newRefreshToken, {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'None',
+                maxAge: 90 * 24 * 60 * 60 * 1000 // 7 days
+            });
+            
+
+           res.json({ accessToken: newAccessToken });
         })
 
 
@@ -458,43 +516,45 @@ export const refreshAdminToken = async (req, res, next) => {
 export const getUserdata = async (req, res, next) => {
     try {
 
-        // The Middleware (verfiy token) alrready attached the user to req.user
-        // So just find them  in the db
-        let user
-        if (req.user.role === "Electrician") {
-            user = await prisma.electrician_customer.findUnique({
-                where: { id: req.user.id },
-                select: {
-                    id: true,
-                    phone_number: true,
-                    name: true,
-                    // Do NOT select password!
-                }
-            })
-        }
-        if (req.user.role === "Consumer") {
-            user = await prisma.electrician_customer.findUnique({
-                where: { id: req.user.id },
-                select: {
-                    id: true,
-                    phone_number: true,
-                    name: true,
-                    // Do NOT select password!
-                }
-            })
+        console.log(req)
+        // 1. Check if middleware attached the user
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ message: "Unauthorized" });
         }
 
-        if (!user) {
-            return res.status(404).json({
-                message: "User not Found"
-            })
+        let user = null;
+
+        // 2. Search in the correct table based on the Role in the Token
+        if (req.user.role === "Electrician") {
+            user = await prisma.ElectricianCustomer.findUnique({
+                where: { id: req.user.id },
+                select: { id: true, name: true, phone_number: true, referral_code: true }
+            });
         }
-        res.json({ success: true, user });
+        else if (req.user.role === "Consumer") {
+            user = await prisma.UserCustomer.findUnique({
+                where: { id: req.user.id },
+                select: { id: true, name: true, phone_number: true }
+            });
+        }
+
+        // 3. Handle User Not Found
+        if (!user) {
+            return res.status(404).json({ message: "User record not found in database" });
+        }
+
+        // 4. Send Back Data
+        res.status(200).json({
+            success: true,
+            user: {
+                ...user,
+                role: req.user.role // Send the role back so frontend knows who they are
+            }
+        });
 
     } catch (error) {
-        res.status(500).json({
-            message: `Server Errro`
-        })
+        console.error("GetMe Error:", error);
+        res.status(500).json({ message: "Server Error", error: error.message });
     }
 }
 
@@ -505,7 +565,7 @@ export const getAdmindata = async (req, res, next) => {
     // So just search in the database
 
     try {
-        const admin = await prisma.admin.findUnique({
+        const admin = await prisma.Admin.findUnique({
             where: {
                 id: req.user.id
             },

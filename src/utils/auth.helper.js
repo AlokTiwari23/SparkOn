@@ -131,42 +131,36 @@ export const otprequest = async (phone_number) => {
 }
 
 export const savedata = async (name, phone_number, role) => {
-    try {  
-        let user = null ;
+    try {   
+        let user = null;
 
-
-
+        // Ensure role matches exactly (Case Sensitive!)
         if (role === "Consumer") {
-             user = await prisma.user_customer.create({
-                data: {
-                    name,
-                    phone_number
-                }
-            })
+             user = await prisma.UserCustomer.create({
+                data: { name, phone_number }
+            });
         }
         else if (role === "Electrician") {
-            user = await prisma.electrician_customer.create({
+            user = await prisma.ElectricianCustomer.create({
                 data: {
                     name,
                     phone_number,
-                    reffreal_code: generateReferralCode(name, phone_number)
+                    referral_code: generateReferralCode(name, phone_number)
                 }
-            })
-        }else{
-            throw new ValidationError(`There Role is not Error`)
+            });
+        } else {
+            // FIX: Clearer error message so you know what went wrong
+            throw new Error(`Invalid Role Provided: ${role}. Must be 'Consumer' or 'Electrician'.`);
         }
 
-        return user;
+        // Return the user object (make sure to attach the role for consistency)
+        return { ...user, role }; 
 
-
-    }
-    catch (error) {
+    } catch (error) {
         if (error.code === 'P2002') {
-            throw new ValidationError("User already exists.");
+            throw new Error("User already exists with this phone number.");
         }
-        throw new ValidationError(`Error saving data: ${error.message}`);
-
-
+        throw error; // Re-throw generic errors
     }
 }
 

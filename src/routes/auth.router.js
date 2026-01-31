@@ -1,7 +1,8 @@
 import express from "express"
+import { verfiyAdmin , verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
 import {verfiyuser , registerUser, loginuser, verifyloginotp,resendotp, adminlogin ,userlogout, adminlogout, refreshUserToken, refreshAdminToken, getUserdata, getAdmindata } from "../controllers/auth.controllers.js"
 const authrouter =  express.Router()
-import { verfiyAdmin , verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
+
 
 // Users Route
 authrouter.post("/user-register",registerUser)

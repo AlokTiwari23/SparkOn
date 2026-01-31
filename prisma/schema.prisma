@@ -3,242 +3,301 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "postgresql" // or "mysql"
+ 
 }
 
-model admin{
+// --- USERS & AUTH ---
+
+model Admin {
   id        Int      @id @default(autoincrement())
   email     String   @unique
   password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  
+  @@map("admins")
 }
 
-model user_customer {
-  customer_id  Int              @id @default(autoincrement())
-  phone_number String           @unique @db.VarChar(15)
+model UserCustomer {
+  id           Int      @id @default(autoincrement())
+  phone_number String   @unique @db.VarChar(15)
   name         String
-  is_active    Boolean          @default(true)
-  created_at   DateTime         @default(now())
-  updated_at   DateTime         @updatedAt
-  cartSessions cart_session[]
-  order        orders[]
-  paymentIns   payment_in[]
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relations
+  cartSessions CartSession[]
+  orders       Order[]
+  payments     PaymentIn[]
   reviews      Review[]
-  address      user_addresses[]
+  addresses    UserAddress[]
+
+  @@map("user_customers")
 }
 
-model electrician_customer {
-  electrician_id    Int              @id @default(autoincrement())
-  phone_number      String           @unique @db.VarChar(15)
-  reffreal_code     String           @unique @db.VarChar(5)
-  kyc_stat          kycstatus        @default(PENDING)
-  pan_card_number   String           @unique @default("PENDING") @db.VarChar(10)
-  wallet_balance    Int              @default(0)
-  back_account_json Json?
-  is_active         Boolean          @default(true)
-  name              String           @db.VarChar(150)
-  refreal_orders    orders[]         @relation("Attributedelectrician")
-  orders            orders[]         @relation("Orderelectrician")
-  payoutRequests    payout_request[]
-  address           user_addresses[]
-  walletLedgers     wallet_ledger[]
+model ElectricianCustomer {
+  id              Int       @id @default(autoincrement())
+  phone_number    String    @unique @db.VarChar(15)
+  referral_code   String    @unique @db.VarChar(10) // Fixed Typo
+  kyc_stat        KycStatus @default(PENDING)
+  pan_card_number String    @default("PENDING") @db.VarChar(10)
+  wallet_balance  Int       @default(0)
+  bank_account    Json?     // Renamed for clarity
+  is_active       Boolean   @default(true)
+  name            String    @db.VarChar(150)
+  
+  // Relations
+  referral_orders Order[]         @relation("AttributedElectrician") // Commission earned
+  personal_orders Order[]         @relation("OrderElectrician")      // Personal purchase
+  payoutRequests  PayoutRequest[]
+  addresses       UserAddress[]
+  walletLedgers   WalletLedger[]
+
+  @@map("electrician_customers")
 }
 
-model user_addresses {
-  address_id     Int                   @id @default(autoincrement())
-  customer_id    Int?
+model UserAddress {
+  id            Int      @id @default(autoincrement())
+  customer_id   Int?
   electrician_id Int?
-  user_type      roles
-  address_label  label
+  user_type     UserRole
+  address_label Label
   street_address String
-  city           String                @db.VarChar(150)
-  state          String                @db.VarChar(150)
-  country        String                @db.VarChar(150)
-  pincode        String                @db.VarChar(6)
-  is_active      Boolean               @default(true)
-  customer       user_customer?        @relation(fields: [customer_id], references: [customer_id])
-  electrician    electrician_customer? @relation(fields: [electrician_id], references: [electrician_id])
+  city          String   @db.VarChar(150)
+  state         String   @db.VarChar(150)
+  country       String   @db.VarChar(150)
+  pincode       String   @db.VarChar(6)
+  is_active     Boolean  @default(true)
+
+  customer    UserCustomer?        @relation(fields: [customer_id], references: [id])
+  electrician ElectricianCustomer? @relation(fields: [electrician_id], references: [id])
+
+  @@map("user_addresses")
 }
 
-model categories {
-  category_id Int     @id @default(autoincrement())
-  parent_id   Int?
-  name        String  @db.VarChar(150)
-  image_url   String
-  is_active   Boolean @default(true)
+// --- PRODUCTS & INVENTORY ---
+
+model Category {
+  id        Int       @id @default(autoincrement())
+  parent_id Int?
+  name      String    @db.VarChar(150)
+  image_url String
+  is_active Boolean   @default(true)
+  
+  products  Product[]
+
+  @@map("categories")
 }
 
-model products {
-  product_id       Int               @id @default(autoincrement())
+model Product {
+  id               Int       @id @default(autoincrement())
   category_id      Int?
-  sku              String            @unique @db.VarChar(15)
-  name             String            @db.VarChar(150)
+  sku              String    @unique @db.VarChar(15)
+  name             String    @db.VarChar(150)
   description      String
   specification    Json
   price_mrp        Decimal
-  image_url        String
   price_selling    Decimal
   tax_rate_percent Decimal
-  is_active        Boolean           @default(true)
-  cartItems        cart_items[]
-  stock            inventory_stock[]
-  orderItems       order_items[]
-  reviews          Review[]
+  image_url        String
+  is_active        Boolean   @default(true)
+
+  category   Category?        @relation(fields: [category_id], references: [id])
+  cartItems  CartItem[]
+  stock      InventoryStock[]
+  orderItems OrderItem[]
+  reviews    Review[]
+
+  @@map("products")
 }
 
-model inventory_stock {
-  inventory_id            Int      @id @default(autoincrement())
-  product_id              Int
-  quantity_on_hand        Int
-  quantity_reserved       Int
-  warehouse_location_code code
-  product                 products @relation(fields: [product_id], references: [product_id])
+model InventoryStock {
+  id                    Int      @id @default(autoincrement())
+  product_id            Int
+  quantity_on_hand      Int
+  quantity_reserved     Int
+  warehouse_location    WarehouseCode // Renamed for clarity
+
+  product Product @relation(fields: [product_id], references: [id])
+
+  @@map("inventory_stocks")
 }
 
-model orders {
-  order_id                  Int                   @id @default(autoincrement())
+// --- ORDERS & PAYMENTS ---
+
+model Order {
+  id                        Int         @id @default(autoincrement())
   customer_id               Int?
-  electrician_id            Int?
-  attributed_electrician_id Int?
-  total_amount              Decimal               @default(0)
-  total_tax                 Decimal               @default(0)
-  total_discount            Decimal               @default(0)
-  total_paid                Decimal               @default(0)
-  total_electrician_point   Decimal               @default(0)
-  order_status              orderStatus           @default(PROCESSING)
-  payment_status            payment
-  created_at                DateTime              @default(now())
-  updated_at                DateTime              @updatedAt
-  invoices                  invoices[]
-  orderItems                order_items[]
-  attributed_electrician    electrician_customer? @relation("Attributedelectrician", fields: [attributed_electrician_id], references: [electrician_id])
-  customer                  user_customer?        @relation(fields: [customer_id], references: [customer_id])
-  electrician               electrician_customer? @relation("Orderelectrician", fields: [electrician_id], references: [electrician_id])
-  paymentIns                payment_in[]
+  electrician_id            Int?        // For personal purchase
+  attributed_electrician_id Int?        // For commission logic
+  
+  total_amount              Decimal     @default(0)
+  total_tax                 Decimal     @default(0)
+  total_discount            Decimal     @default(0)
+  total_paid                Decimal     @default(0)
+  total_electrician_point   Decimal     @default(0)
+  
+  order_status              OrderStatus @default(PROCESSING)
+  payment_status            PaymentStatus // Changed to clearer Enum
+  
+  created_at                DateTime    @default(now())
+  updated_at                DateTime    @updatedAt
+
+  invoices   Invoice[]
+  orderItems OrderItem[]
+  paymentIns PaymentIn[]
+
+  // Relations
+  attributed_electrician ElectricianCustomer? @relation("AttributedElectrician", fields: [attributed_electrician_id], references: [id])
+  customer               UserCustomer?        @relation(fields: [customer_id], references: [id])
+  electrician            ElectricianCustomer? @relation("OrderElectrician", fields: [electrician_id], references: [id])
+
+  @@map("orders")
 }
 
-model order_items {
-  order_item_id     Int      @id @default(autoincrement())
+model OrderItem {
+  id                Int     @id @default(autoincrement())
   order_id          Int
   product_id        Int
   quantity          Int
   frozen_price      Decimal
   frozen_commission Decimal
   subtotal          Decimal
-  order             orders   @relation(fields: [order_id], references: [order_id])
-  product           products @relation(fields: [product_id], references: [product_id])
+
+  order   Order   @relation(fields: [order_id], references: [id])
+  product Product @relation(fields: [product_id], references: [id])
+
+  @@map("order_items")
 }
 
-model payment_in {
-  payment_id     Int            @id @default(autoincrement())
+model PaymentIn {
+  id             Int           @id @default(autoincrement())
   order_id       Int
   customer_id    Int
-  gateway_txn_id String         @db.VarChar(50)
+  gateway_txn_id String        @db.VarChar(50)
   amount         Decimal
-  method         String         @db.VarChar(50)
-  status         payment_status
-  paid_at        DateTime       @default(now())
-  customer       user_customer  @relation(fields: [customer_id], references: [customer_id])
-  order          orders         @relation(fields: [order_id], references: [order_id])
+  method         String        @db.VarChar(50)
+  status         PaymentStatus
+  paid_at        DateTime      @default(now())
+
+  customer UserCustomer @relation(fields: [customer_id], references: [id])
+  order    Order        @relation(fields: [order_id], references: [id])
+
+  @@map("payments_in")
 }
 
-model invoices {
-  invoice_id Int    @id @default(autoincrement())
-  order_id   Int
-  pdf_url    String
-  order      orders @relation(fields: [order_id], references: [order_id])
+model Invoice {
+  id       Int    @id @default(autoincrement())
+  order_id Int
+  pdf_url  String
+  
+  order Order @relation(fields: [order_id], references: [id])
+
+  @@map("invoices")
 }
 
-model wallet_ledger {
-  transaction_id Int                  @id @default(autoincrement())
+// --- WALLET & CART ---
+
+model WalletLedger {
+  id             Int            @id @default(autoincrement())
   electrician_id Int
-  types          wallet               @default(CREDIT)
-  category       category             @default(POINT)
+  type           WalletType     @default(CREDIT)
+  category       WalletCategory @default(POINT)
   amount         Decimal
-  reference_id   String               @db.VarChar(20)
+  reference_id   String         @db.VarChar(20)
   description    String
-  created_at     DateTime             @default(now())
-  electrician    electrician_customer @relation(fields: [electrician_id], references: [electrician_id])
+  created_at     DateTime       @default(now())
+
+  electrician ElectricianCustomer @relation(fields: [electrician_id], references: [id])
+
+  @@map("wallet_ledgers")
 }
 
-model payout_request {
-  payout_id      Int                  @id @default(autoincrement())
+model PayoutRequest {
+  id             Int          @id @default(autoincrement())
   electrician_id Int
   amount         Decimal
-  status         payout_reque         @default(REQUESTED)
-  bank_utr       String               @db.VarChar
-  processed_at   DateTime             @default(now())
-  electrician    electrician_customer @relation(fields: [electrician_id], references: [electrician_id])
+  status         PayoutStatus @default(REQUESTED)
+  bank_utr       String?      @db.VarChar // Nullable if pending
+  processed_at   DateTime?    // Nullable if pending
+
+  electrician ElectricianCustomer @relation(fields: [electrician_id], references: [id])
+
+  @@map("payout_requests")
 }
 
-model cart_session {
-  cart_id                  Int           @id @default(autoincrement())
+model CartSession {
+  id                       Int      @id @default(autoincrement())
   customer_id              Int
   applied_electrician_code String?
   is_active                Boolean
-  updated_at               DateTime      @updatedAt
-  cartItems                cart_items[]
-  customer                 user_customer @relation(fields: [customer_id], references: [customer_id])
+  updated_at               DateTime @updatedAt
+  
+  cartItems CartItem[]
+  customer  UserCustomer @relation(fields: [customer_id], references: [id])
+
+  @@map("cart_sessions")
 }
 
-model cart_items {
-  cart_item_id Int          @id @default(autoincrement())
-  cart_id      Int
-  product_id   Int
-  quantity     Int
-  cart         cart_session @relation(fields: [cart_id], references: [cart_id])
-  product      products     @relation(fields: [product_id], references: [product_id])
+model CartItem {
+  id         Int @id @default(autoincrement())
+  cart_id    Int
+  product_id Int
+  quantity   Int
+
+  cart    CartSession @relation(fields: [cart_id], references: [id])
+  product Product     @relation(fields: [product_id], references: [id])
+
+  @@map("cart_items")
 }
 
 model Review {
-  review_id   Int           @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   product_id  Int
   customer_id Int
-  rating      Int           @default(5)
+  rating      Int      @default(5)
   comment     String?
-  is_verified Boolean       @default(false)
-  is_active   Boolean       @default(true)
-  created_at  DateTime      @default(now())
-  customer    user_customer @relation(fields: [customer_id], references: [customer_id])
-  product     products      @relation(fields: [product_id], references: [product_id])
+  is_verified Boolean  @default(false)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+
+  customer UserCustomer @relation(fields: [customer_id], references: [id])
+  product  Product      @relation(fields: [product_id], references: [id])
 
   @@unique([product_id, customer_id])
   @@map("reviews")
 }
 
-enum kycstatus {
+// --- ENUMS ---
+
+enum KycStatus {
   PENDING
   VERIFIED
   REJECTED
 }
 
-enum roles {
-  ELECTRIAN
+enum UserRole {
+  ELECTRICIAN
   CUSTOMER
 }
 
-enum label {
+enum Label {
   HOME
   WORK
   SITE
   PERMANENT
 }
 
-enum code {
+enum WarehouseCode {
   Hata
   Kadha
   Karuriam
   Shajanaw
 }
 
-enum payment {
-  PENDING
-  PAID
-  REFUNDED
-}
-
-enum orderStatus {
+enum OrderStatus {
   PROCESSING
   SHIPPED
   DELIVERED
@@ -246,24 +305,26 @@ enum orderStatus {
   RETURNED
 }
 
-enum payment_status {
-  SUCCESS
+enum PaymentStatus {
+  PENDING
+  SUCCESS // Merged 'PAID' and 'SUCCESS' into one standard
   FAILED
+  REFUNDED
 }
 
-enum wallet {
+enum WalletType {
   CREDIT
   DEBIT
 }
 
-enum category {
+enum WalletCategory {
   POINT
   WITHDRAWAL
   REFUND_REVERSAL
   TDS_DEDUCTION
 }
 
-enum payout_reque {
+enum PayoutStatus {
   REQUESTED
   PROCESSED
   FAILED
