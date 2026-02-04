@@ -90,6 +90,21 @@ model Category {
 
   @@map("categories")
 }
+model Banner {
+  id           String   @id @default(uuid())
+  imageUrl     String   // The Cloudinary URL
+  publicId     String   // Cloudinary ID (needed to delete image later)
+  
+  title        String?  // e.g. "Diwali Sale"
+  isActive     Boolean  @default(true)
+  
+  // Navigation Logic (Where does the app go when clicked?)
+  targetScreen String   // e.g., "ProductDetails", "CategoryList", "WebView"
+  targetId     String?  // e.g., Product ID "123" or Category ID "wires"
+  
+  createdAt    DateTime @default(now())
+  @@map("banner")
+}
 
 model Product {
   id               Int       @id @default(autoincrement())
@@ -103,6 +118,7 @@ model Product {
   tax_rate_percent Decimal
   image_url        String
   is_active        Boolean   @default(true)
+  tags             String[] @default([])  //Array of String ["Summer" ,"BestSeller"]
 
   category   Category?        @relation(fields: [category_id], references: [id])
   cartItems  CartItem[]
