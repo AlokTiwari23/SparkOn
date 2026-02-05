@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql" // or "mysql"
- 
 }
 
 // --- USERS & AUTH ---
@@ -15,7 +14,7 @@ model Admin {
   password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("admins")
 }
 
@@ -35,6 +34,7 @@ model UserCustomer {
   addresses    UserAddress[]
 
   @@map("user_customers")
+  notifications Notification[]
 }
 
 model ElectricianCustomer {
@@ -44,35 +44,39 @@ model ElectricianCustomer {
   kyc_stat        KycStatus @default(PENDING)
   pan_card_number String    @default("PENDING") @db.VarChar(10)
   wallet_balance  Int       @default(0)
-  bank_account    Json?     // Renamed for clarity
+  bank_account    Json? // Renamed for clarity
   is_active       Boolean   @default(true)
   name            String    @db.VarChar(150)
-  
+
   // Relations
   referral_orders Order[]         @relation("AttributedElectrician") // Commission earned
-  personal_orders Order[]         @relation("OrderElectrician")      // Personal purchase
+  personal_orders Order[]         @relation("OrderElectrician") // Personal purchase
   payoutRequests  PayoutRequest[]
   addresses       UserAddress[]
   walletLedgers   WalletLedger[]
+  cartSessions    CartSession[]
 
   @@map("electrician_customers")
+  notifications Notification[]
 }
 
 model UserAddress {
-  id            Int      @id @default(autoincrement())
-  customer_id   Int?
+  id             Int      @id @default(autoincrement())
+  customer_id    Int?
   electrician_id Int?
-  user_type     UserRole
-  address_label Label
+  user_type      UserRole
+  address_label  Label
   street_address String
-  city          String   @db.VarChar(150)
-  state         String   @db.VarChar(150)
-  country       String   @db.VarChar(150)
-  pincode       String   @db.VarChar(6)
-  is_active     Boolean  @default(true)
+  city           String   @db.VarChar(150)
+  state          String   @db.VarChar(150)
+  country        String   @db.VarChar(150)
+  pincode        String   @db.VarChar(6)
+  is_active      Boolean  @default(true)
 
   customer    UserCustomer?        @relation(fields: [customer_id], references: [id])
   electrician ElectricianCustomer? @relation(fields: [electrician_id], references: [id])
+
+  orders Order[]
 
   @@map("user_addresses")
 }
@@ -80,45 +84,47 @@ model UserAddress {
 // --- PRODUCTS & INVENTORY ---
 
 model Category {
-  id        Int       @id @default(autoincrement())
+  id        Int     @id @default(autoincrement())
   parent_id Int?
-  name      String    @db.VarChar(150)
+  name      String  @db.VarChar(150)
   image_url String
-  is_active Boolean   @default(true)
-  
-  products  Product[]
+  is_active Boolean @default(true)
+
+  products Product[]
 
   @@map("categories")
 }
+
 model Banner {
-  id           String   @id @default(uuid())
-  imageUrl     String   // The Cloudinary URL
-  publicId     String   // Cloudinary ID (needed to delete image later)
-  
-  title        String?  // e.g. "Diwali Sale"
-  isActive     Boolean  @default(true)
-  
+  id       String @id @default(uuid())
+  imageUrl String // The Cloudinary URL
+  publicId String // Cloudinary ID (needed to delete image later)
+
+  title    String? // e.g. "Diwali Sale"
+  isActive Boolean @default(true)
+
   // Navigation Logic (Where does the app go when clicked?)
-  targetScreen String   // e.g., "ProductDetails", "CategoryList", "WebView"
-  targetId     String?  // e.g., Product ID "123" or Category ID "wires"
-  
-  createdAt    DateTime @default(now())
+  targetScreen String // e.g., "ProductDetails", "CategoryList", "WebView"
+  targetId     String? // e.g., Product ID "123" or Category ID "wires"
+
+  createdAt DateTime @default(now())
+
   @@map("banner")
 }
 
 model Product {
-  id               Int       @id @default(autoincrement())
+  id               Int      @id @default(autoincrement())
   category_id      Int?
-  sku              String    @unique @db.VarChar(15)
-  name             String    @db.VarChar(150)
+  sku              String   @unique @db.VarChar(15)
+  name             String   @db.VarChar(150)
   description      String
   specification    Json
   price_mrp        Decimal
   price_selling    Decimal
   tax_rate_percent Decimal
   image_url        String
-  is_active        Boolean   @default(true)
-  tags             String[] @default([])  //Array of String ["Summer" ,"BestSeller"]
+  is_active        Boolean  @default(true)
+  tags             String[] @default([]) //Array of String ["Summer" ,"BestSeller"]
 
   category   Category?        @relation(fields: [category_id], references: [id])
   cartItems  CartItem[]
@@ -130,11 +136,11 @@ model Product {
 }
 
 model InventoryStock {
-  id                    Int      @id @default(autoincrement())
-  product_id            Int
-  quantity_on_hand      Int
-  quantity_reserved     Int
-  warehouse_location    WarehouseCode // Renamed for clarity
+  id                 Int           @id @default(autoincrement())
+  product_id         Int
+  quantity_on_hand   Int
+  quantity_reserved  Int
+  warehouse_location WarehouseCode // Renamed for clarity
 
   product Product @relation(fields: [product_id], references: [id])
 
@@ -144,22 +150,25 @@ model InventoryStock {
 // --- ORDERS & PAYMENTS ---
 
 model Order {
-  id                        Int         @id @default(autoincrement())
+  id                        Int  @id @default(autoincrement())
   customer_id               Int?
-  electrician_id            Int?        // For personal purchase
-  attributed_electrician_id Int?        // For commission logic
-  
-  total_amount              Decimal     @default(0)
-  total_tax                 Decimal     @default(0)
-  total_discount            Decimal     @default(0)
-  total_paid                Decimal     @default(0)
-  total_electrician_point   Decimal     @default(0)
-  
-  order_status              OrderStatus @default(PROCESSING)
-  payment_status            PaymentStatus // Changed to clearer Enum
-  
-  created_at                DateTime    @default(now())
-  updated_at                DateTime    @updatedAt
+  electrician_id            Int? // For personal purchase
+  attributed_electrician_id Int? // For commission logic
+
+  shipping_address_id Int //Order Send in Which Address
+  shipping_address    UserAddress @relation(fields: [shipping_address_id], references: [id])
+
+  total_amount            Decimal @default(0)
+  total_tax               Decimal @default(0)
+  total_discount          Decimal @default(0)
+  total_paid              Decimal @default(0)
+  total_electrician_point Decimal @default(0)
+
+  order_status   OrderStatus   @default(PROCESSING)
+  payment_status PaymentStatus // Changed to clearer Enum
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   invoices   Invoice[]
   orderItems OrderItem[]
@@ -208,7 +217,7 @@ model Invoice {
   id       Int    @id @default(autoincrement())
   order_id Int
   pdf_url  String
-  
+
   order Order @relation(fields: [order_id], references: [id])
 
   @@map("invoices")
@@ -237,7 +246,7 @@ model PayoutRequest {
   amount         Decimal
   status         PayoutStatus @default(REQUESTED)
   bank_utr       String?      @db.VarChar // Nullable if pending
-  processed_at   DateTime?    // Nullable if pending
+  processed_at   DateTime? // Nullable if pending
 
   electrician ElectricianCustomer @relation(fields: [electrician_id], references: [id])
 
@@ -246,13 +255,15 @@ model PayoutRequest {
 
 model CartSession {
   id                       Int      @id @default(autoincrement())
-  customer_id              Int
+  customer_id              Int?
+  electrician_id           Int?
   applied_electrician_code String?
   is_active                Boolean
   updated_at               DateTime @updatedAt
-  
-  cartItems CartItem[]
-  customer  UserCustomer @relation(fields: [customer_id], references: [id])
+
+  cartItems   CartItem[]
+  customer    UserCustomer?        @relation(fields: [customer_id], references: [id])
+  electrician ElectricianCustomer? @relation(fields: [electrician_id], references: [id])
 
   @@map("cart_sessions")
 }
@@ -286,6 +297,27 @@ model Review {
   @@map("reviews")
 }
 
+model Notification {
+  id              Int      @id @default(autoincrement())
+  
+  
+  customer_id     Int?
+  electrician_id  Int?
+  
+  title           String   @db.VarChar(100) // e.g., "Order Shipped"
+  message         String   @db.VarChar(255) // e.g., "Your wire bundle is on the way."
+  type            String   @default("INFO") // "ORDER", "PAYMENT", "SYSTEM"
+  
+  is_read         Boolean  @default(false)
+  created_at      DateTime @default(now())
+
+  // Relations
+  customer        UserCustomer?        @relation(fields: [customer_id], references: [id])
+  electrician     ElectricianCustomer? @relation(fields: [electrician_id], references: [id])
+
+  @@map("notifications")
+}
+
 // --- ENUMS ---
 
 enum KycStatus {
@@ -295,8 +327,9 @@ enum KycStatus {
 }
 
 enum UserRole {
-  ELECTRICIAN
-  CUSTOMER
+  Electrician
+  customer
+  Admin
 }
 
 enum Label {
