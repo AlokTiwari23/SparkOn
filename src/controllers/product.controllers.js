@@ -1,7 +1,7 @@
 
 import prisma from "../db/db.prisam.js"
 import { ValidationError } from "../middlewares/errorHandler/index.js";
-import { deleteFromClodinary, uploadOnCloudinary } from "../utils/Cloudinary.js";
+import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/Cloudinary.js";
 
 
 
@@ -412,33 +412,112 @@ export const createProduct = async (req, res, next) => {
 
 export const updateProduct = async (req, res, next) => {
     try {
-
         const { id } = req.params;
 
-        const { name, description, price, mrp, categoryId, brandId, isFeatured } = req.body
+        // 1. DATA EXTRACTION
+        // 'req.body' contains text fields AND the list of IDs to delete
+        const { 
+            name, description, price, mrp, stock, 
+            categoryId, brandId, isFeatured,
+            deleteImageIds // 👈 Expecting an array of Image IDs (e.g., ["5", "8"])
+        } = req.body;
 
-        const product = await prisma.product.update({
-            where: { id },
-            data: {
-                name,
-                description,
-                price: price ? parseFloat(price) : undefined,
-                mrp: mrp ? parseFloat(mrp) : undefined,
-                categoryId,
-                brandId,
-                isFeatured: isFeatured ? (isFeatured === "true") : undefined
+        // 2. PREPARE TEXT UPDATES
+        const updateData = {
+            name,
+            description,
+            price: price ? parseFloat(price) : undefined,
+            mrp: mrp ? parseFloat(mrp) : undefined,
+            stock: stock ? parseInt(stock) : undefined,
+            categoryId: categoryId ? parseInt(categoryId) : undefined,
+            brandId: brandId ? parseInt(brandId) : undefined,
+            isFeatured: isFeatured ? (isFeatured === "true") : undefined,
+            updatedAt: new Date() // Good practice to force update timestamp
+        };
+
+        // ==================================================
+        // 🗑️ STEP 3: DELETE OLD IMAGES (If requested)
+        // ==================================================
+        if (deleteImageIds) {
+            // Handle Multipart Array Quirks (Sometimes comes as string, sometimes array)
+            let idsToDelete = [];
+            if (Array.isArray(deleteImageIds)) {
+                idsToDelete = deleteImageIds;
+            } else {
+                idsToDelete = [deleteImageIds]; 
             }
+
+            // Convert "12" -> 12
+            const finalIds = idsToDelete.map(id => parseInt(id));
+
+            if (finalIds.length > 0) {
+                // A. Find images in DB to get their Cloudinary Public IDs
+                const imagesToDelete = await prisma.image.findMany({
+                    where: { 
+                        id: { in: finalIds },
+                        productId: parseInt(id) // Security Check: Must belong to THIS product
+                    }
+                });
+
+                // B. Delete from Cloudinary Cloud
+                for (const img of imagesToDelete) {
+                    if (img.publicId) {
+                        await deleteFromCloudinary(img.publicId);
+                    }
+                }
+
+                // C. Delete from Database
+                await prisma.image.deleteMany({
+                    where: { id: { in: finalIds } }
+                });
+            }
+        }
+
+        // ==================================================
+        // 📤 STEP 4: UPLOAD NEW IMAGES (If sent)
+        // ==================================================
+        // 'req.files' is populated by upload.array('images') middleware
+        if (req.files && req.files.length > 0) {
+            const uploadedImages = [];
+            
+            for (const file of req.files) {
+                const response = await uploadOnCloudinary(file.path);
+                if (response) {
+                    uploadedImages.push({
+                        url: response.secure_url,
+                        publicId: response.public_id // Save this for future deletion
+                    });
+                }
+            }
+
+            // Attach new images to the update logic
+            if (uploadedImages.length > 0) {
+                updateData.images = {
+                    create: uploadedImages.map(img => ({
+                        url: img.url,
+                        publicId: img.publicId 
+                    }))
+                };
+            }
+        }
+
+        // ==================================================
+        // ✅ STEP 5: EXECUTE DATABASE UPDATE
+        // ==================================================
+        const product = await prisma.product.update({
+            where: { id: parseInt(id) },
+            data: updateData,
+            include: { images: true } // Return the fresh list of images
         });
 
         res.status(200).json({
             success: true,
+            message: "Product updated successfully",
             product
-        })
+        });
 
-    } catch (error) {
-        next(error)
-    }
-}
+    } catch (error) { next(error); }
+};
 
 // 3. Quick  Stock Update (Fast!)
 // Use this whne new inventory arrives
@@ -707,3 +786,85 @@ export const getProductDetails = async(req,res,next) =>{
         next(error)
     }
 }
+
+
+// 🏷️ GET DEALS (High Discount Items)
+export const getDeals = async (req, res, next) => {
+    try {
+        // Logic: Find products where Selling Price is significantly lower than MRP
+        // We can't do complex math in 'findMany', so we fetch active items and filter or just sort by a 'discount' field if you added one.
+        // Ideally, you should store 'discount_percent' in DB to sort easily.
+        // For now, let's just return products with a manual 'isDeal' flag or just random active ones.
+        
+        const products = await prisma.product.findMany({
+            where: { isActive: true },
+            take: 12,
+            orderBy: { price: 'asc' }, // Cheapest items first as "Deals"
+            include: { images: { take: 1 } }
+        });
+
+        res.status(200).json({ success: true, products });
+    } catch (error) { next(error); }
+};
+
+// 🔄 TOGGLE PRODUCT STATUS (Active <-> Inactive)
+export const toggleProductStatus = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+
+        const product = await prisma.product.findUnique({ where: { id: parseInt(id) } });
+        if (!product) return next(new ValidationError("Product not found"));
+
+        const updatedProduct = await prisma.product.update({
+            where: { id: parseInt(id) },
+            data: { isActive: !product.isActive } // Flip the status
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: `Product is now ${updatedProduct.isActive ? 'Active' : 'Inactive'}`,
+            isActive: updatedProduct.isActive
+        });
+    } catch (error) { next(error); }
+};
+
+// 📦 BULK RULES (Set Min Qty / Case Qty)
+// Since we don't have a separate "BulkRule" table in your last schema, 
+// we will assume this updates the Product's own bulk fields.
+export const updateBulkRules = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { min_order_qty, case_qty } = req.body;
+
+        const product = await prisma.product.update({
+            where: { id: parseInt(id) },
+            data: {
+                min_order_qty: min_order_qty ? parseInt(min_order_qty) : undefined,
+                case_qty: case_qty ? parseInt(case_qty) : undefined
+            }
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Bulk buying rules updated",
+            product 
+        });
+    } catch (error) { next(error); }
+};
+
+// 🗑️ DELETE BULK RULE (Reset to Default)
+export const deleteBulkRule = async (req, res, next) => {
+    try {
+        const { id } = req.params; // Using Product ID since rules are on the product
+
+        await prisma.product.update({
+            where: { id: parseInt(id) },
+            data: {
+                min_order_qty: 1, // Reset to default
+                case_qty: 1       // Reset to default
+            }
+        });
+
+        res.status(200).json({ success: true, message: "Bulk rules reset to default" });
+    } catch (error) { next(error); }
+};

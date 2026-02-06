@@ -64,3 +64,40 @@ export const processPayout = async(req,res,next)=>{
         next(error)
     }
 }
+
+export const  getAllPayoutRequest = async(req,res,next) =>{
+    try{
+
+        const {status} = req.query ; 
+
+        const whereClause = {};
+        if(status){
+            whereClause.status = status ; 
+        }
+
+        const payouts = await prisma.payoutRequest.findMany({
+            where: whereClause,
+            orderBy : { id: 'desc'},
+            include :{
+                electrician:{
+                    select :{
+                        id:true,
+                        name:true ,
+                        phone_number :true
+                        // bank_account: true // If you stored bank details in the Electrician model
+
+                    }
+                }
+            }
+        });
+
+        res.status(200).json({
+            success :true,
+            count : payouts.length ,
+            payouts
+        })
+
+    }catch(error){
+        next(error)
+    }
+}

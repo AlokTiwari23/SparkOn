@@ -62,12 +62,3 @@ export const verfiyToken =  async(req,res,next) =>{
 }
 
 
-export const verfiyAdmin = (req,res,next) =>{
-    if(req.user && req.user.role === 'Admin'){
-        next();
-    }else{
-        return res.status(403).json({
-            message:"Access Denied. Admins only"
-        })
-    }
-}

@@ -35,7 +35,7 @@ export const uploadOnCloudinary = async( localFilePath) =>{
 }
 
 
-export const deleteFromClodinary = async(publicId) =>{
+export const deleteFromCloudinary = async(publicId) =>{
     try{
         if(!publicId) return null ;
 
