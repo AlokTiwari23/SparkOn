@@ -1,7 +1,7 @@
 import express, { Router } from "express";
-import { verfiyToken } from "../middlewares/authentication/isAuthenticated";
-import {isAdmin} from "../middlewares/authentication/isAuthorizedRoles"
-import {addtrackingDetails, cancelOrder, getAllOrderAdmin, getMyOrder, getOrderDetails, getOrderStats, placeOrder, processReturn, requestReturn, updateOrderAddress, updateOrderStatus}  from "../controllers/order.controllers"
+import { verfiyToken } from "../middlewares/authentication/isAuthenticated.js";
+import {isAdmin} from "../middlewares/authentication/isAuthorizedRoles.js"
+import {addtrackingDetails, cancelOrder, getAllOrderAdmin, getMyOrder, getOrderDetails, getOrderStats, placeOrder, processReturn, requestReturn, updateOrderAddress, updateOrderStatus}  from "../controllers/order.controllers.js"
 const orderrouter = express.Router()
 
 

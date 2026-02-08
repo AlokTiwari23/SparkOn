@@ -27,14 +27,14 @@ model UserCustomer {
   updated_at   DateTime @updatedAt
 
   // Relations
-  cartSessions CartSession[]
-  orders       Order[]
-  payments     PaymentIn[]
-  reviews      Review[]
-  addresses    UserAddress[]
+  cartSessions  CartSession[]
+  orders        Order[]
+  payments      PaymentIn[]
+  reviews       Review[]
+  addresses     UserAddress[]
+  notifications Notification[]
 
   @@map("user_customers")
-  notifications Notification[]
 }
 
 model ElectricianCustomer {
@@ -55,9 +55,9 @@ model ElectricianCustomer {
   addresses       UserAddress[]
   walletLedgers   WalletLedger[]
   cartSessions    CartSession[]
+  notifications   Notification[]
 
   @@map("electrician_customers")
-  notifications Notification[]
 }
 
 model UserAddress {
@@ -84,11 +84,12 @@ model UserAddress {
 // --- PRODUCTS & INVENTORY ---
 
 model Category {
-  id        Int     @id @default(autoincrement())
-  parent_id Int?
-  name      String  @db.VarChar(150)
-  image_url String
-  is_active Boolean @default(true)
+  id              Int     @id @default(autoincrement())
+  parent_id       Int?
+  name            String  @db.VarChar(150)
+  image_url       String
+  image_public_id String
+  is_active       Boolean @default(true)
 
   products Product[]
 
@@ -113,38 +114,38 @@ model Banner {
 }
 
 model Product {
-  id               Int      @id @default(autoincrement())
-  category_id      Int?
-  sku              String   @unique @db.VarChar(15)
-  name             String   @db.VarChar(150)
-  description      String
-  specification    Json
-  price_mrp        Decimal
-  price_selling    Decimal
-  tax_rate_percent Decimal
-  image_url        String
-  is_active        Boolean  @default(true)
-  tags             String[] @default([]) //Array of String ["Summer" ,"BestSeller"]
-
-  category   Category?        @relation(fields: [category_id], references: [id])
-  cartItems  CartItem[]
-  stock      InventoryStock[]
-  orderItems OrderItem[]
-  reviews    Review[]
+  id              Int    @id @default(autoincrement())
+  name            String @db.VarChar(150) // "Lazer Cooler"
+  description     String                  //  General details
+  tags            String[]         @default([])
+  gst_tax_per     Int
+  images          String[]          @default([])  // Store ["url1" , "url2"]
+  is_active       Boolean          @default(true)// Relations
+  variants        ProductVariant[]
+  category        Category?        @relation(fields: [categoryId], references: [id])
+  categoryId      Int? 
+  orderItems      OrderItem[]
+  brand           Brand?           @relation(fields: [brandId], references: [id])
+  brandId         Int?
+  cartItems       CartItem[]
+  reviews         Review[]
 
   @@map("products")
 }
 
-model InventoryStock {
-  id                 Int           @id @default(autoincrement())
-  product_id         Int
-  quantity_on_hand   Int
-  quantity_reserved  Int
-  warehouse_location WarehouseCode // Renamed for clarity
+model ProductVariant {
+  id          Int   @id @default(autoincrement())
+  product_id  Int     // The specific differences
+  color       String
+  sku          String  @unique @db.VarChar(20)
+  price_mrp     Decimal
+  price_selling Decimal
+  stock_quantity  Int 
+  product   Product @relation(fields: [product_id] , references: [id])
+  
+  @@map("product_variants")
 
-  product Product @relation(fields: [product_id], references: [id])
 
-  @@map("inventory_stocks")
 }
 
 // --- ORDERS & PAYMENTS ---
@@ -240,6 +241,25 @@ model WalletLedger {
   @@map("wallet_ledgers")
 }
 
+model Brand {
+  id   Int    @id @default(autoincrement())
+  name String @unique @db.VarChar(100) // "Havells", "Usha"
+
+  // Logos are optional (?) but highly recommended for the App UI
+  image_url       String?
+  image_public_id String?
+
+  is_active Boolean @default(true)
+
+  // Relation: One Brand has Many Products
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("brands")
+}
+
 model PayoutRequest {
   id             Int          @id @default(autoincrement())
   electrician_id Int
@@ -298,22 +318,21 @@ model Review {
 }
 
 model Notification {
-  id              Int      @id @default(autoincrement())
-  
-  
-  customer_id     Int?
-  electrician_id  Int?
-  
-  title           String   @db.VarChar(100) // e.g., "Order Shipped"
-  message         String   @db.VarChar(255) // e.g., "Your wire bundle is on the way."
-  type            String   @default("INFO") // "ORDER", "PAYMENT", "SYSTEM"
-  
-  is_read         Boolean  @default(false)
-  created_at      DateTime @default(now())
+  id Int @id @default(autoincrement())
+
+  customer_id    Int?
+  electrician_id Int?
+
+  title   String @db.VarChar(100) // e.g., "Order Shipped"
+  message String @db.VarChar(255) // e.g., "Your wire bundle is on the way."
+  type    String @default("INFO") // "ORDER", "PAYMENT", "SYSTEM"
+
+  is_read    Boolean  @default(false)
+  created_at DateTime @default(now())
 
   // Relations
-  customer        UserCustomer?        @relation(fields: [customer_id], references: [id])
-  electrician     ElectricianCustomer? @relation(fields: [electrician_id], references: [id])
+  customer    UserCustomer?        @relation(fields: [customer_id], references: [id])
+  electrician ElectricianCustomer? @relation(fields: [electrician_id], references: [id])
 
   @@map("notifications")
 }

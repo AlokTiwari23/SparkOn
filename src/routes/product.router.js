@@ -1,7 +1,8 @@
 import express from "express"
-import {  verfiyToken } from "../middlewares/authentication/isAuthenticated"
-import { createBanner, createBrand, createCategory, createProduct, deleteBanner, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getHomeBanner, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock } from "../controllers/product.controllers"
-import { isAdmin } from "../middlewares/authentication/isAuthorizedRoles"
+import {  verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
+import { createBanner, createBrand, createCategory, createProduct, deleteBanner, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getHomeBanner, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock } from "../controllers/product.controllers.js"
+import { isAdmin } from "../middlewares/authentication/isAuthorizedRoles.js"
+import { upload } from "../utils/multer.js"
 const productrouter = express.Router()
 
 

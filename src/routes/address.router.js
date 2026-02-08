@@ -1,5 +1,5 @@
 import express from "express";
-import { verfiyToken } from "../middlewares/authentication/isAuthenticated";
+import { verfiyToken } from "../middlewares/authentication/isAuthenticated.js";
 import {createAddress, deleteAddress, getMyAddresses, setDefaultAddress, updateAddress} from "../controllers/address.controllers.js"
 
 
@@ -13,7 +13,7 @@ addressrouter.get('/' , verfiyToken,getMyAddresses)
 addressrouter.put('/:id' , verfiyToken,updateAddress)
 // Delete Address
 addressrouter.delete('/:id' , verfiyToken ,deleteAddress)
-// Set Default Addre
+// Set Default Address
 addressrouter.patch('/:id/default', verfiyToken , setDefaultAddress)
 
 

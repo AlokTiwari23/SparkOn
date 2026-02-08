@@ -8,7 +8,18 @@ import morgan from "morgan";
 
 import { errorMiddleware } from "./middlewares/errorHandler/error-middleware.js"
 import authrouter from "./routes/auth.router.js";
-
+import productrouter from './routes/product.router.js'
+import reviewrouter from './routes/review.router.js'
+import userrouter from './routes/user.router.js'
+import walletrouter from './routes/wallet.router.js'
+import payoutrouter from './routes/payout.router.js'
+import paymentrouter from './routes/payment.router.js'
+import orderrouter from './routes/order.router.js'
+import notificationrouter from './routes/notification.router.js'
+import invoicerouter from './routes/invoice.router.js'
+import dashboardrouter from './routes/dashborad.router.js'
+import cartrouter from './routes/cart.router.js'
+import addressrouter from './routes/address.router.js'
 // You must include 'with { type: "json" }'
 
 const app = express()
@@ -35,7 +46,7 @@ const authlimiter = ratelimit({
 
 
 // This allows normal usage but stops DDoS attacks
-const apiLimiter = rateLimit({
+const apiLimiter = ratelimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 500, // Generous! 500 requests per 15 mins (plenty for shopping)
     message: { message: "Too many requests, please slow down." },
@@ -46,8 +57,20 @@ const apiLimiter = rateLimit({
 
 //Rooutes
 
-app.use("/api/auth",authlimiter, authrouter)
-app.use("/api",apiLimiter)
+app.use("/api/auth",authlimiter, authrouter)  // Done Postman
+app.use("/api/product",apiLimiter , productrouter)   // Done Postman
+app.use("/api/review" ,apiLimiter , reviewrouter)  // Done Postman
+app.use("/api/user" , apiLimiter , userrouter)     //Done Postman
+app.use("/api/wallet" , apiLimiter , walletrouter)  // Done Postman
+app.use("/api/payout" , apiLimiter , payoutrouter)   // Done Postman
+app.use("/api/payment" , apiLimiter , paymentrouter)  // Done Postman
+app.use("/api/order" , apiLimiter , orderrouter)    //Done Postman
+app.use("/api/notification" , apiLimiter , notificationrouter)  // Done Postman
+app.use("/api/invoice" , apiLimiter , invoicerouter)   // Done Postman
+app.use("/api/dashboard" , apiLimiter , dashboardrouter)  //Done Postman
+app.use("/api/address" ,apiLimiter , addressrouter)   //Done Postman
+app.use("/api/cart" , apiLimiter ,cartrouter)
+
 
 app.use(errorMiddleware)
 

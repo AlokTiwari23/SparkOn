@@ -19,24 +19,16 @@ export const verfiyToken =  async(req,res,next) =>{
 
         else if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
             token = req.headers.authorization.split(' ')[1];
-        }
-
-        console.log(token)
+        }       
         // If no token found anywhere
         if(!token){
             return res.status(401).json({message:"Access Denied. No token provided"})
         }
-
-
         // Verfiy the token
-
         const decoded = jwt.verify(token , process.env.ACCESS_TOKEN_SECRET)
-        console.log(decoded)
-
         // Attacted user info to the request object so controllers can use it
         // We use 'req.user' fro EVERYONE (Admin , Electrican , Consumer)
         req.user = decoded ;
-
         next();
 
     }catch(error){

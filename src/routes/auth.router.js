@@ -1,5 +1,6 @@
 import express from "express"
-import { verfiyAdmin , verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
+import {isAdmin} from "../middlewares/authentication/isAuthorizedRoles.js"
+import { verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
 import {verfiyuser , registerUser, loginuser, verifyloginotp,resendotp, adminlogin ,userlogout, adminlogout, refreshUserToken, refreshAdminToken, getUserdata, getAdmindata , deleteUseAccount} from "../controllers/auth.controllers.js"
 const authrouter =  express.Router()
 
@@ -19,7 +20,7 @@ authrouter.delete("/delete-account" , verfiyToken, deleteUseAccount)
 authrouter.post("/admin-login" , adminlogin)
 authrouter.post("/admin/logout", adminlogout)
 authrouter.post("/auth/refresh" , refreshAdminToken )
-authrouter.get("/admin/me" , verfiyToken , verfiyAdmin, getAdmindata)
+authrouter.get("/admin/me" , verfiyToken , isAdmin, getAdmindata)
 
 
 

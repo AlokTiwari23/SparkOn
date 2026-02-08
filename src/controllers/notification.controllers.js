@@ -1,4 +1,3 @@
-import { success } from "zod";
 import prisma from "../db/db.prisam.js"
 
 export const getNotification = async(req,res,next) =>{

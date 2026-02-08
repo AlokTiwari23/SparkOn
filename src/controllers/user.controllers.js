@@ -1,4 +1,4 @@
-import prisma from "../db/db.prisam";
+import prisma from "../db/db.prisam.js";
 
 export const updateProfile = async(req,res,next) =>{
     try{

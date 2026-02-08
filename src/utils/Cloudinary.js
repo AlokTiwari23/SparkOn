@@ -22,7 +22,7 @@ export const uploadOnCloudinary = async( localFilePath) =>{
         })
 
         // File has been uploaded successfully , remove local file
-
+        // Remove form the local storage means /public/temp
         fs.unlinkSync(localFilePath);
         return response;
 
