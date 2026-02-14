@@ -1,10 +1,10 @@
 
-import { success } from "zod";
+
 import prisma from "../db/db.prisam.js"
 import { NotFoundError, ValidationError } from "../middlewares/errorHandler/index.js";
 import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/Cloudinary.js";
-import { file } from "pdfkit";
-import { Promise } from "mongoose";
+
+
 
 
 
@@ -863,6 +863,8 @@ export const getAllProduct = async (req, res, next) => {
         next(error);
     }
 }
+
+
 export const getProductSuggestion = async (req, res, next) => {
     try {
 
@@ -963,6 +965,7 @@ export const getProductSuggestion = async (req, res, next) => {
 // }
 
 // 🏷️ GET DEALS (High Discount Items)
+
 
 export const getProductDetails = async (req, res, next) => {
     try {

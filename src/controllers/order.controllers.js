@@ -527,11 +527,6 @@ export const updateOrderAddress = async (req,res,next) =>{
 export const getOrderStats = async(req,res,next) =>{
     try{
         // Calculate Total Revenue (All Time)
-        const totalRevenue = await prisma.order.aggregate({
-            _sum:{total_amount: true},
-            where : {status : {not:"CANCELLED"}}
-        })
-
         // Count Order by Status 
         const statusCounts = await prisma.order.groupBy({
             by:['status'],

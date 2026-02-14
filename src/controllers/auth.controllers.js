@@ -5,6 +5,7 @@ import { ValidationError } from "../middlewares/errorHandler/index.js"
 import redis from "../db/redis.js"
 import jwt, { decode } from "jsonwebtoken"
 import { setCookie } from "../utils/setCookie.js"
+import { success } from "zod"
 
 // Registration a New Users
 
@@ -315,7 +316,7 @@ export const adminlogin = async (req, res, next) => {
 
         if (!admin) {
             return res.status(404).json({
-                message: "Invalid credentials"
+                message: "Incorrect Email"
             })
         }
         const isMatch = await bcrypt.compare(password, admin.password)
@@ -501,7 +502,7 @@ export const refreshAdminToken = async (req, res, next) => {
             });
 
 
-            res.json({ accessToken: newAccessToken });
+            res.json({ success :true , accessToken: newAccessToken , admin : payload });
         })
 
 

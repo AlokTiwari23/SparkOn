@@ -19,7 +19,7 @@ authrouter.delete("/delete-account" , verfiyToken, deleteUseAccount)
 // Admin Routes
 authrouter.post("/admin-login" , adminlogin)
 authrouter.post("/admin/logout", adminlogout)
-authrouter.post("/auth/refresh" , refreshAdminToken )
+authrouter.post("/refresh" , refreshAdminToken )
 authrouter.get("/admin/me" , verfiyToken , isAdmin, getAdmindata)
 
 

@@ -25,9 +25,10 @@ import addressrouter from './routes/address.router.js'
 const app = express()
 
 app.use(cors({
-    origin: ["http://localhost:8000"],
+    origin: ["http://localhost:8000","http://localhost:5173"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true
+    credentials: true,
+     methods : ["GET","POST","PUT","PATCH","DELETE"]
 }))
 
 app.use(morgan("dev"))
