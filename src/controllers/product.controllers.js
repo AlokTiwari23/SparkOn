@@ -582,133 +582,96 @@ export const createProduct = async (req, res, next) => {
 // Update Product (Full Edit)
 
 export const updateProduct = async (req, res, next) => {
-
     let newUploadedImageData = [];
 
     try {
-
         const { id } = req.params;
+        // 1. Extract Base Product Text
+        const { name, description, categoryId, brandId, tags, base_images_to_keep, variants } = req.body;
+        
+        // upload.any() puts ALL files in an array called req.files.
+        const allFiles = req.files || [];
 
-        // Get Data from Body
-        const {
-            name, description, categoryId, brandId, tags, variants, images_to_keep  // Array of URLs the user wants to keep
-        } = req.body
+        const existingProduct = await prisma.product.findUnique({ where: { id: parseInt(id) } });
+        if (!existingProduct) return next(new NotFoundError(`Product not found`));
 
-        const newImageFiles = req.files; //New files to add
-
-        // Check if Product Exists
-        const existingProduct = await prisma.product.findUnique({
-            where: { id: parseInt(id) },
-            include: { variants: true }
-        })
-
-        if (!existingProduct) {
-            return next(new NotFoundError(`Product not found`))
-        }
-
-        // --- Image Logic Start ---
-
-        // A. Handle "Keep" Images
-        // IF user sends noting , assume they want to keep ALL existing images
-        let finalImages = existingProduct.images;
-
-        if (images_to_keep) {
-            // Parse because  FormData sends it as string : ["url1","url2"]
-            const keepList = JSON.parse(images_to_keep)
-            finalImages = keepList;
-
-            // (Optional) Cleanup : Find images NOT in keepList and delete from Cloudinary
-            // You would extract public_id here and call deleteFromCloudinary()
-        }
-
-        // Upload New Images
-
-        if (newImageFiles && newImageFiles.length > 0) {
-            const uploadPromises = newImageFiles.map(file => uploadOnCloudinary(file.path))
-            const uploadResult = await Promise.all(uploadPromises)
-
-            newUploadedImageData = uploadResult.filter(img => img != null);
-            const newUrls = newUploadedImageData.map(img => img.secure_url);
-
-            // Merge Old + New
-            finalImages = [...finalImages, ...newUrls]
-        }
-
-        // --- Image Logic End ---
-
-        // Prase JSON Fields
-        const parsedTags = tags ? JSON.parse(tags) : undefined;
+        const parsedTags = tags ? JSON.parse(tags) : [];
         const parsedVariants = variants ? JSON.parse(variants) : [];
 
-        // 4. Transaction : Update Product & Upset Variants 
-        // $transaction if Step2 fails not any thing run in the database
+        // ==========================================
+        // 🖼️ 2. PROCESS BASE PRODUCT IMAGES
+        // ==========================================
+        let finalBaseImages = base_images_to_keep ? JSON.parse(base_images_to_keep) : [];
+        
+        // Find files meant for base product
+        const baseNewFiles = allFiles.filter(f => f.fieldname === 'base_images');
+        
+        if (baseNewFiles.length > 0) {
+            const uploadPromises = baseNewFiles.map(f => uploadOnCloudinary(f.path));
+            const results = await Promise.all(uploadPromises);
+            const urls = results.filter(img => img != null).map(img => img.secure_url);
+            finalBaseImages = [...finalBaseImages, ...urls];
+        }
+
+        // ==========================================
+        // 💾 3. DATABASE TRANSACTION
+        // ==========================================
         const result = await prisma.$transaction(async (tx) => {
-            // Step A: Update Parent Product
-            const updateProduct = await tx.product.update({
+            
+            // A. Update Parent Product
+            const updatedProduct = await tx.product.update({
                 where: { id: parseInt(id) },
                 data: {
-                    name,
-                    description,
+                    name, description, tags: parsedTags, images: finalBaseImages,
                     categoryId: categoryId ? parseInt(categoryId) : undefined,
-                    brandId: brandId ? parseInt(brandId) : undefined,
-                    tags: parsedTags,
-                    images: finalImages // Save the merged array
+                    brandId: brandId ? parseInt(brandId) : undefined
                 }
             });
 
-            // Step B : Handle Variants ( Upset Strategy)
-            // We loop throught the sent variants
-            //  if it has an ID -> Update it .
-            // If it has no ID  - > Create it.
+            // B. Update Every Variant
+            for (let i = 0; i < parsedVariants.length; i++) {
+                const v = parsedVariants[i];
+                if (!v.id) continue; // Only updating existing variants here
 
-            if (parsedVariants.length > 0) {
-                for (const v of parsedVariants) {
-                    if (v.id) {
-                        // Update existing variant 
-                        await tx.productVariant.update({
-                            where: { id: parseInt(v.id) },
-                            data: {
-                                color: v.color,
-                                sku: v.sku,
-                                stock_quantity: parseInt(v.price_mrp),
-                                price_mrp: parseFloat(v.price_mrp),
-                                price_selling: parseFloat(v.price_selling)
-                            }
-                        })
-                    } else {
-                        // Create new variant (e.g user added "Red" color)
-                        await tx.productVariant.create({
-                            data: {
-                                product_id: updateProduct.id,
-                                color: v.color,
-                                sku: v.sku,
-                                stock_quantity: parseInt(v.stock_quantity),
-                                price_mrp: parseFloat(v.price_mrp),
-                                price_selling: parseFloat(v.price_selling)
-                            }
-                        })
-                    }
+                // Image Logic for THIS specific variant
+                let variantFinalImages = v.images_to_keep || [];
+                
+                // Find files explicitly uploaded for this variant index
+                const variantFiles = allFiles.filter(f => f.fieldname === `variant_${i}_images`);
+                
+                if (variantFiles.length > 0) {
+                    const vUploadPromises = variantFiles.map(f => uploadOnCloudinary(f.path));
+                    const vResults = await Promise.all(vUploadPromises);
+                    const vUrls = vResults.filter(img => img != null).map(img => img.secure_url);
+                    variantFinalImages = [...variantFinalImages, ...vUrls];
                 }
+
+                // Save Variant
+                await tx.productVariant.update({
+                    where: { id: parseInt(v.id) },
+                    data: {
+                        color: v.color,
+                        sku: v.sku,
+                        size_rating: v.size_rating,
+                        stock_quantity: parseInt(v.stock_quantity),
+                        price_mrp: parseFloat(v.price_mrp),
+                        price_selling: parseFloat(v.price_selling),
+                        images: variantFinalImages
+                    }
+                });
             }
 
-            return updateProduct
+            return updatedProduct;
         });
 
-        res.status(200).json({
-            success: true,
-            message: `Product update successfully`,
-            result
-        })
+        res.status(200).json({ success: true, message: `Everything updated successfully`, product: result });
 
     } catch (error) {
-        // Cleanup : If DB fails , delete the NEW images we just uploaded       
-        if (newUploadedImageData.length > 0) {
-            const deletePromise = newUploadedImageData.map(img => deleteFromCloudinary(img.public_id));
-            await Promise.all(deletePromise)
-        }
-        next(error)
+        console.error("Update Error:", error);
+        // Note: In a production environment with multi-file uploads, 
+        // thorough Cloudinary rollback logic goes here if TX fails.
+        next(error);
     }
-
 };
 
 // 3. Quick  Stock Update (Fast!)
@@ -716,14 +679,18 @@ export const updateProduct = async (req, res, next) => {
 
 export const updateProductStock = async (req, res, next) => {
     try {
-        const { variantId, adjustment } = req.body;
-        // Example: adjustment = 5 (Add 5) OR adjustment = -2 (Remove 2)
+        const { id } = req.params; // 👈 Grab the ID from the URL (/:id/stock)
+        const { adjustment } = req.body; // 👈 Grab only the adjustment from the body
+
+        if (!adjustment || isNaN(adjustment)) {
+            return res.status(400).json({ success: false, message: "Valid adjustment amount is required" });
+        }
 
         const action = adjustment > 0 ? 'increment' : 'decrement';
         const value = Math.abs(parseInt(adjustment));
 
         const updatedVariant = await prisma.productVariant.update({
-            where: { id: parseInt(variantId) },
+            where: { id: parseInt(id) }, // 👈 Use the parsed ID here
             data: {
                 stock_quantity: {
                     [action]: value // Prisma magic: atomically adds/removes 🪄
@@ -1150,3 +1117,4 @@ export const deleteBulkRule = async (req, res, next) => {
         res.status(200).json({ success: true, message: "Bulk rules reset to default" });
     } catch (error) { next(error); }
 };
+

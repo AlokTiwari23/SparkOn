@@ -28,7 +28,7 @@ productrouter.get("/:id" , getProductDetails ) // Product Full info + Related Pr
 // --- ADMIN : Product & Contnet Management --- (Required verfiyToken & isAdmin)
 
 productrouter.post('/create' , verfiyToken , isAdmin , upload.array('images',5) , createProduct  ) 
-productrouter.put("/:id" , verfiyToken ,isAdmin , upload.array('images' , 5), updateProduct)
+productrouter.put("/update/:id" , verfiyToken ,isAdmin , upload.any(), updateProduct)
 
 // Quick Updates (Very Important for daily prices/stock)
 productrouter.patch("/:id/stock" , verfiyToken , isAdmin , updateProductStock)
