@@ -30,7 +30,7 @@ export const placeOrder = async (req, res, next) => {
             include: {
                 cartItems: {
                     include: {
-                        product: true
+                        product_variant: true
                     }
                 }
             }
@@ -147,7 +147,7 @@ export const getMyOrder = async (req, res, next) => {
             include: {
                 orderItems: {
                     include: {
-                        product: {
+                        product_variant: {
                             select: {
                                 name: true,
                                 images: { take: 1 }

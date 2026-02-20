@@ -1,6 +1,6 @@
 import express from "express"
 import {  verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
-import { createBanner, createBrand, createCategory, createProduct, deleteBanner, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getHomeBanner, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock } from "../controllers/product.controllers.js"
+import { createBanner, createBrand, createCategory, createProduct, deleteBanner, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getHomeBanner, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock ,createProductVariant} from "../controllers/product.controllers.js"
 import { isAdmin } from "../middlewares/authentication/isAuthorizedRoles.js"
 import { upload } from "../utils/multer.js"
 const productrouter = express.Router()
@@ -13,11 +13,13 @@ productrouter.get('/home/trending' , getTredingNow) // Based on sales/ views
 productrouter.get('/home/seasonal' , getSeasonPicks)  // Admin -curated seasonal gear
 productrouter.get('/home/deals' , getDeals)  // High discount items
 productrouter.get('/home/new-arrivals' , getNewArrival) // Latest items
+// Add new variant to an existing product
+productrouter.post('/variant/create', verfiyToken, isAdmin, upload.array('images', 5), createProductVariant);
 
 
 
 // ---- Public : Discovery & Search ----
-productrouter.get('/' , getAllProduct)  // Main Catalog (Filter / Search)
+productrouter.get('/all' , getAllProduct)  // Main Catalog (Filter / Search)
 productrouter.get('/categories' , getAllCategories) // For the Category "Circle" icon
 productrouter.get('/brand' , getAllBrand)   // For the Brand slider
 productrouter.get("/:id" , getProductDetails ) // Product Full info + Related Products
@@ -25,7 +27,7 @@ productrouter.get("/:id" , getProductDetails ) // Product Full info + Related Pr
 
 // --- ADMIN : Product & Contnet Management --- (Required verfiyToken & isAdmin)
 
-productrouter.post('/create' , verfiyToken , isAdmin , upload.array('image',5) , createProduct  ) 
+productrouter.post('/create' , verfiyToken , isAdmin , upload.array('images',5) , createProduct  ) 
 productrouter.put("/:id" , verfiyToken ,isAdmin , upload.array('images' , 5), updateProduct)
 
 // Quick Updates (Very Important for daily prices/stock)

@@ -1,11 +1,90 @@
 
 
+import { success } from "zod";
 import prisma from "../db/db.prisam.js"
 import { NotFoundError, ValidationError } from "../middlewares/errorHandler/index.js";
 import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/Cloudinary.js";
 
 
 
+// ==========================================
+// 🚀 ADD NEW VARIANT TO EXISTING PRODUCT
+// ==========================================
+export const createProductVariant = async (req, res, next) => {
+    let uploadedImagesData = [];
+
+    try {
+        const { 
+            product_id, color, size_rating, sku, 
+            price_selling, price_mrp, stock_quantity, boxpacking, moq 
+        } = req.body;
+
+        const imagesFiles = req.files;
+
+        // 1. Validation
+        if (!product_id || !price_selling || !stock_quantity || !boxpacking) {
+            return next(new ValidationError("Required pricing and stock fields are missing"));
+        }
+
+        if (!imagesFiles || imagesFiles.length === 0) {
+            return next(new ValidationError("At least 1 variant image is required"));
+        }
+
+        // 2. Ensure base product exists
+        const existingProduct = await prisma.product.findUnique({
+            where: { id: parseInt(product_id) }
+        });
+
+        if (!existingProduct) {
+            return next(new NotFoundError("Base product not found"));
+        }
+
+        // 3. Third-Party Upload (Cloudinary)
+        const uploadPromises = imagesFiles.map(file => uploadOnCloudinary(file.path));
+        const uploadResult = await Promise.all(uploadPromises);
+        
+        uploadedImagesData = uploadResult.filter(img => img != null);
+
+        if (uploadedImagesData.length === 0) {
+            return next(new ValidationError("Failed to upload images to Cloudinary"));
+        }
+
+        const imagesUrls = uploadedImagesData.map(img => img.secure_url);
+
+        // 4. Write to Database
+        const newVariant = await prisma.productVariant.create({
+            data: {
+                product_id: parseInt(product_id), // Link to base product
+                sku: sku || `VAR-${Date.now()}`,         
+                color: color || null,
+                size_rating: size_rating || null,
+                price_selling: parseFloat(price_selling),        
+                price_mrp: price_mrp ? parseFloat(price_mrp) : parseFloat(price_selling), 
+                stock_quantity: parseInt(stock_quantity),         
+                boxpacking: parseInt(boxpacking),        
+                moq: moq ? parseInt(moq) : 1,            
+                images: imagesUrls
+            }
+        });
+
+        // 5. Success Response
+        res.status(201).json({
+            success: true,
+            message: "Variant added successfully",
+            result: newVariant
+        });
+
+    } catch (error) {
+        // Cleanup: Delete images from Cloudinary if database fails
+        if (uploadedImagesData.length > 0) {
+            console.log("Database write failed. Cleaning up Cloudinary images...");
+            const deletePromises = uploadedImagesData.map(img => deleteFromCloudinary(img.public_id));
+            await Promise.all(deletePromises);
+        }
+        
+        next(error);
+    }
+}
 
 
 export const createBanner = async (req, res, next) => {
@@ -226,69 +305,75 @@ export const getSeasonPicks = async (req, res, next) => {
 // Category Controllers
 
 export const createCategory = async (req, res, next) => {
+
+
     try {
+        // Grab parent_id from the frontend
+        const { name, parent_id } = req.body;
 
-        const { name } = req.body;
 
-        // Image comes from multer -> Cloudinary
-
-        const localFilePath = req.file?.path;
-
-        if (!name) return next(new ValidationError("Category name is required"))
-        if (!localFilePath) {
-            return next(new ValidationError(`Image is not Provided`))
+        if (!name) {
+            return next(new ValidationError("Category name is required"));
         }
 
-        let imageUrl = "";
 
-        if (localFilePath) {
-            const response = await uploadOnCloudinary(localFilePath);
-            if (response) {
-                imageUrl = response
-            }
-        } else {
-            return next(new ValidationError(`There is Not any File`))
+        const existingCategory = await prisma.category.findUnique({
+            where: { name: name }
+        });
+
+        if (existingCategory) {
+            return next(new ValidationError("Category name already exists"));
         }
+
+
+
+
+
+        // Convert parent_id to a number, or leave it null if not provided
+        const parsedParentId = parent_id ? parseInt(parent_id, 10) : null;
 
         const category = await prisma.category.create({
-            data: { name, image_url: imageUrl.secure_url, image_public_id: imageUrl.public_id } // For the Help in the Deleted
-        })
+            data: {
+                name,
 
-        res.status(201).json({
+            }
+        });
+
+        return res.status(201).json({
             success: true,
+            message: "Category Created Successfully",
             category
-        })
+        });
+
     } catch (error) {
+        if (uploadedImage?.public_id) {
+            console.log("Creation failed. Deleting orphan category image...");
 
-        // CleanUp : If we uploaded an image, Delete It immediatly
-        if (imageUrl && imageUrl.public_id) {
-            await deleteFromCloudinary(imageUrl.public_id)
         }
-
-        return res.status(500).json({
-            error: "Category Creation failed"
-        })
+        return next(error);
     }
-}
+};
 
 
 export const getAllCategories = async (req, res, next) => {
     try {
-
         const categories = await prisma.category.findMany({
-            where: { isActive: true },
-            select: { id: true, name: true, image: true } // Only Send what needed for icons
-        })
+            // 1. FIXED: Changed isActive to is_active
+            where: { is_active: true },
+
+            // 2. FIXED: Changed image to image_url to match your schema
+            select: { id: true, name: true }
+        });
 
         res.status(200).json({
             success: true,
             categories
-        })
+        });
 
     } catch (error) {
-        next(error)
+        next(error);
     }
-}
+};
 
 
 // Brand Controllers
@@ -302,27 +387,40 @@ export const createBrand = async (req, res, next) => {
         const { name } = req.body;
         const localFilePath = req.file?.path;
 
+        // ==========================================
+        // STEP 1: Fast Synchronous Validation
+        // ==========================================
         if (!name) {
-            next(new ValidationError(`Brand Name is Required`))
+            return next(new ValidationError(`Brand Name is Required`)); // Added return!
         }
 
+        if (!localFilePath) {
+            return next(new ValidationError(`Brand logo/image is required`)); // Added return!
+        }
+
+        // ==========================================
+        // STEP 2: Database Validation
+        // ==========================================
         const existingBrand = await prisma.brand.findUnique({
             where: { name: name }
         });
 
         if (existingBrand) {
-            next(new ValidationError(`Brand Name is Already Exists`))
+            return next(new ValidationError(`Brand Name Already Exists`)); // Added return!
         }
 
-        if (!localFilePath) {
-            next(new ValidationError(`Brand logo/image is required`))
-        }
-
+        // ==========================================
+        // STEP 3: Third-Party Upload (Expensive)
+        // ==========================================
         uploadedImage = await uploadOnCloudinary(localFilePath);
 
         if (!uploadedImage) {
-            next(new ValidationError(`Failed to upload image to Cloudinary`))
+            return next(new ValidationError(`Failed to upload image to Cloudinary`)); // Added return!
         }
+
+        // ==========================================
+        // STEP 4: Database Write
+        // ==========================================
         const brand = await prisma.brand.create({
             data: {
                 name,
@@ -331,32 +429,42 @@ export const createBrand = async (req, res, next) => {
             }
         });
 
-        // --- Success Response ---
-        return res.status(200).json({
+        // ==========================================
+        // STEP 5: Success Response
+        // ==========================================
+        // 201 is the standard HTTP status for "Created"
+        return res.status(201).json({
             success: true,
             message: "Brand Created Successfully",
             brand
-        })
+        });
 
     } catch (error) {
         // --- Cleanup Safety Net ---
         // If DB failed but image uploaded, delete the image
         if (uploadedImage?.public_id) {
-            console.log("Creation failed. Deleting orphan image...");
+            console.log("Database creation failed. Deleting orphan image from Cloudinary...");
             await deleteFromCloudinary(uploadedImage.public_id);
         }
 
-        next(error);
+        return next(error);
     }
-}
+};
 
 export const getAllBrand = async (req, res, next) => {
     try {
 
         const brands = await prisma.brand.findMany({
-            where: { isActive: true },
-            select: { id: true, name: true, logo: true }
+            where: { is_active: true },
+            select: { id: true, name: true, image_url: true }
         })
+
+        res.status(200).json({
+            success: true,
+            brands
+        })
+
+
 
     } catch (error) {
         next(error)
@@ -369,91 +477,107 @@ export const getAllBrand = async (req, res, next) => {
 // 1. Create Product (Handles Multiple Images)
 
 export const createProduct = async (req, res, next) => {
+    let uploadedImagesData = [];
+
     try {
-        // Extract Text Data 
-        const { name, description, categoryId, brandId, tags, variants } = req.body
-        const imagesFiles = req.files; // ONly 1 file now
-        //  Validate Basic Fields 
-        if (!name || !variants || !localFilePath || !description || !categoryId || !brandId || !tags) {
-            return next(new ValidationError("Name and Variants are required"))
+        // 1. Extract ALL fields from the frontend
+        const {
+            name, description, categoryId, brandId,
+            price, mrp, stock, sku, hsnCode, isFeatured,
+            boxpacking, gst_tax_per, moq, uom, warranty, is_isi_marked, color, size_rating
+        } = req.body;
+
+        // 2. Parse Tags
+        let parsedTags = req.body.tags || [];
+        if (typeof parsedTags === 'string') { parsedTags = [parsedTags]; }
+
+        const imagesFiles = req.files;
+
+        // 3. Validation (Ensure both Base and Variant required fields exist)
+        if (!name || !description || !categoryId || !brandId || !price || !stock || !boxpacking) {
+            return res.status(400).json({ success: false, message: "Required fields are missing" });
         }
+
         if (!imagesFiles || imagesFiles.length === 0) {
-            return next(new ValidationError(`At least 1 product image is required`))
+            return res.status(400).json({ success: false, message: "At least 1 product image is required" });
         }
-        // Upload All Images in Parallel
-        // We map the files to upload Promises
+
+        // 4. Upload Images to Cloudinary (These belong to the Variant now)
         const uploadPromises = imagesFiles.map(file => uploadOnCloudinary(file.path));
-        // We await them all together
-        const uploadResult = await Promise.all(uploadPromises)
-        // Store the FULL objects (public_id + secure_url) in our outer variable
+        const uploadResult = await Promise.all(uploadPromises);
         uploadedImagesData = uploadResult.filter(img => img != null);
 
-        // If no images succeeded , stop here
         if (uploadedImagesData.length === 0) {
-            return next(new ValidationError("Image upload failed completely"));
+            return res.status(500).json({ success: false, message: "Image upload failed completely" });
         }
-        // Extract just the secure_urls (filter out any failed nulls) 
-        // The Clean Array (Just String)
-        const imagesUrls = uploadResult
-            .filter(img => img != null)
-            .map(img => img.secure_url);
 
-        // Prase Variant (String -> Object)
-        const parsedVariants = variants ? JSON.parse(variants) : [];
-        const parsedTags = tags ? JSON.parse(tags) : [];
+        const imagesUrls = uploadedImagesData.map(img => img.secure_url);
 
-        // Transaction : Save Product + Save Variants
+        // 5. Save to Database using a Transaction
         const result = await prisma.$transaction(async (tx) => {
-            // Create the Parent Product (With the Image)
+
+            // STEP A: Create the Base Product
             const newProduct = await tx.product.create({
                 data: {
                     name,
                     description,
-                    categoryId: parseInt(categoryId),
-                    brandId: parseInt(brandId),
-                    images: imagesUrls,
+                    category: {
+                        connect: { id: parseInt(categoryId) }
+                    },
+                    brand: {
+                        connect: { id: parseInt(brandId) }
+                    },
+                    hsnCode: hsnCode || null,
+                    is_featured: isFeatured === 'true',
+                    uom: uom || "Piece",
+                    warranty: warranty || null,
+                    is_isi_marked: is_isi_marked === 'true',
                     tags: parsedTags,
+                    gst_tax_per: gst_tax_per ? parseInt(gst_tax_per) : null,
                     is_active: true
                 }
             });
-            // Bulk Create Variants (Only Data , No Images)
-            if (parsedVariants.length > 0) {
-                // Map the data to add the new 'product_id'
-                const variantsData = parsedVariants.map(v => ({
-                    product_id: newProduct.id,
-                    color: v.color,
-                    sku: v.sku,
-                    stock_quantity: parseInt(v.stock_quantity),
-                    price_mrp: parseFloat(v.price_mrp),
-                    price_selling: parseFloat(v.price_selling)
-                }));
-                await tx.productVariant.createMany({
-                    data: variantsData
-                })
-            }
-            return newProduct
-        })
-        res.status(201).json({
-            success: true,
-            message: `Product created with variants`,
-            result
-        })
-    } catch (error) {
-        if (uploadedImagesData.length > 0) {
-            // Delete all image in parallel
-            const deletePromise = uploadedImagesData.map(img => {
-                deleteFromCloudinary(img.public_id)
+
+            // STEP B: Create the Default Variant linked to the new Product
+            const newVariant = await tx.productVariant.create({
+                data: {
+                    product_id: newProduct.id,               // 👈 Links to Base Product
+                    sku: sku || `SKU-${Date.now()}`,         // Auto-generate if blank
+                    price_selling: parseFloat(price),        // Moved here
+                    price_mrp: mrp ? parseFloat(mrp) : parseFloat(price),
+                    stock_quantity: parseInt(stock),         // Moved here
+                    boxpacking: parseInt(boxpacking),        // Moved here
+                    moq: moq ? parseInt(moq) : 1,            // Moved here
+                    images: imagesUrls,                      // Moved here
+                    color: color || "Default",                        // Default value
+                    size_rating: size_rating || "Default"                   // Default value
+                }
             });
 
-            await Promise.all(deletePromise)
+            return { product: newProduct, variant: newVariant };
+        });
+
+        res.status(201).json({
+            success: true,
+            message: `Product and Default Variant created successfully`,
+            result
+        });
+
+    } catch (error) {
+        console.error("Product Creation Error:", error);
+
+        // Cleanup images if database fails
+        if (uploadedImagesData.length > 0) {
+            const deletePromises = uploadedImagesData.map(img => deleteFromCloudinary(img.public_id));
+            await Promise.all(deletePromises);
         }
+
         res.status(500).json({
             success: false,
-            message: `Product Creation Falied`
-        })
+            message: `Product Creation Failed: ${error.message}`
+        });
     }
 }
-
 
 // Update Product (Full Edit)
 
@@ -469,16 +593,16 @@ export const updateProduct = async (req, res, next) => {
         const {
             name, description, categoryId, brandId, tags, variants, images_to_keep  // Array of URLs the user wants to keep
         } = req.body
-        
+
         const newImageFiles = req.files; //New files to add
 
         // Check if Product Exists
-        const existingProduct  = await prisma.product.findUnique({
-            where : { id: parseInt(id)},
-            include : {variants :true}
+        const existingProduct = await prisma.product.findUnique({
+            where: { id: parseInt(id) },
+            include: { variants: true }
         })
 
-        if(!existingProduct) { 
+        if (!existingProduct) {
             return next(new NotFoundError(`Product not found`))
         }
 
@@ -486,12 +610,12 @@ export const updateProduct = async (req, res, next) => {
 
         // A. Handle "Keep" Images
         // IF user sends noting , assume they want to keep ALL existing images
-        let finalImages = existingProduct.images ; 
+        let finalImages = existingProduct.images;
 
-        if(images_to_keep){
+        if (images_to_keep) {
             // Parse because  FormData sends it as string : ["url1","url2"]
             const keepList = JSON.parse(images_to_keep)
-            finalImages  = keepList ;
+            finalImages = keepList;
 
             // (Optional) Cleanup : Find images NOT in keepList and delete from Cloudinary
             // You would extract public_id here and call deleteFromCloudinary()
@@ -499,15 +623,15 @@ export const updateProduct = async (req, res, next) => {
 
         // Upload New Images
 
-        if(newImageFiles && newImageFiles.length > 0){
-            const uploadPromises = newImageFiles.map(file => uploadOnCloudinary(file.path) )
+        if (newImageFiles && newImageFiles.length > 0) {
+            const uploadPromises = newImageFiles.map(file => uploadOnCloudinary(file.path))
             const uploadResult = await Promise.all(uploadPromises)
 
             newUploadedImageData = uploadResult.filter(img => img != null);
-            const newUrls = newUploadedImageData.map( img => img.secure_url);
+            const newUrls = newUploadedImageData.map(img => img.secure_url);
 
             // Merge Old + New
-            finalImages = [...finalImages , ...newUrls]
+            finalImages = [...finalImages, ...newUrls]
         }
 
         // --- Image Logic End ---
@@ -518,17 +642,17 @@ export const updateProduct = async (req, res, next) => {
 
         // 4. Transaction : Update Product & Upset Variants 
         // $transaction if Step2 fails not any thing run in the database
-        const result = await prisma.$transaction(async(tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             // Step A: Update Parent Product
             const updateProduct = await tx.product.update({
-                where : {id :parseInt(id)},
-                data : {
+                where: { id: parseInt(id) },
+                data: {
                     name,
                     description,
-                    categoryId : categoryId ? parseInt(categoryId) : undefined,
-                    brandId : brandId ? parseInt(brandId) : undefined,
-                    tags : parsedTags,
-                    images : finalImages // Save the merged array
+                    categoryId: categoryId ? parseInt(categoryId) : undefined,
+                    brandId: brandId ? parseInt(brandId) : undefined,
+                    tags: parsedTags,
+                    images: finalImages // Save the merged array
                 }
             });
 
@@ -537,30 +661,30 @@ export const updateProduct = async (req, res, next) => {
             //  if it has an ID -> Update it .
             // If it has no ID  - > Create it.
 
-            if(parsedVariants.length > 0){
-                for( const v of parsedVariants){
-                    if(v.id){
+            if (parsedVariants.length > 0) {
+                for (const v of parsedVariants) {
+                    if (v.id) {
                         // Update existing variant 
                         await tx.productVariant.update({
-                            where : {id :parseInt(v.id)},
+                            where: { id: parseInt(v.id) },
                             data: {
-                                color : v.color ,
-                                sku : v.sku,
-                                stock_quantity  : parseInt ( v.price_mrp),
-                                price_mrp : parseFloat(v.price_mrp),
-                                price_selling : parseFloat(v.price_selling)
+                                color: v.color,
+                                sku: v.sku,
+                                stock_quantity: parseInt(v.price_mrp),
+                                price_mrp: parseFloat(v.price_mrp),
+                                price_selling: parseFloat(v.price_selling)
                             }
                         })
-                    }else { 
+                    } else {
                         // Create new variant (e.g user added "Red" color)
                         await tx.productVariant.create({
-                            data : {
-                                product_id : updateProduct.id,
-                                color : v.color , 
-                                sku : v.sku , 
-                                stock_quantity : parseInt(v.stock_quantity),
-                                price_mrp : parseFloat(v.price_mrp),
-                                price_selling : parseFloat(v.price_selling)
+                            data: {
+                                product_id: updateProduct.id,
+                                color: v.color,
+                                sku: v.sku,
+                                stock_quantity: parseInt(v.stock_quantity),
+                                price_mrp: parseFloat(v.price_mrp),
+                                price_selling: parseFloat(v.price_selling)
                             }
                         })
                     }
@@ -571,14 +695,14 @@ export const updateProduct = async (req, res, next) => {
         });
 
         res.status(200).json({
-            success : true, 
-            message : `Product update successfully`,
+            success: true,
+            message: `Product update successfully`,
             result
         })
 
     } catch (error) {
         // Cleanup : If DB fails , delete the NEW images we just uploaded       
-        if(newUploadedImageData.length > 0){
+        if (newUploadedImageData.length > 0) {
             const deletePromise = newUploadedImageData.map(img => deleteFromCloudinary(img.public_id));
             await Promise.all(deletePromise)
         }
@@ -592,7 +716,7 @@ export const updateProduct = async (req, res, next) => {
 
 export const updateProductStock = async (req, res, next) => {
     try {
-        const { variantId, adjustment } = req.body; 
+        const { variantId, adjustment } = req.body;
         // Example: adjustment = 5 (Add 5) OR adjustment = -2 (Remove 2)
 
         const action = adjustment > 0 ? 'increment' : 'decrement';
@@ -620,19 +744,19 @@ export const updateProductStock = async (req, res, next) => {
 
 
 export const updateProductPrice = async (req, res, next) => {
-    try{
+    try {
 
         // Get the Variant ID (Not Product ID)
 
-        const { id } =req.params;
-        const {price_selling ,price_mrp} = req.body ;
-        
+        const { id } = req.params;
+        const { price_selling, price_mrp } = req.body;
+
         // Update the Variant Table
         const updatedVariant = await prisma.productVariant.update({
-            where  :{ id : parseInt(id)},
-            data : {
-                price_selling : parseFloat(price_selling),
-                price_mrp : parseFloat(price_mrp)
+            where: { id: parseInt(id) },
+            data: {
+                price_selling: parseFloat(price_selling),
+                price_mrp: parseFloat(price_mrp)
             }
         });
 
@@ -642,7 +766,7 @@ export const updateProductPrice = async (req, res, next) => {
             data: updatedVariant
         });
 
-    }catch(error){
+    } catch (error) {
         next(error)
     }
 }
@@ -673,128 +797,29 @@ export const deleteProduct = async (req, res, next) => {
 
 //  Get all Product's
 
-// export const getAllProduct = async (req, res, next) => {
-//     try {
-
-//         const {
-//             keyword,
-//             categoryId,
-//             brandId,
-//             minPrice,
-//             maxPrice,
-//             sort,
-//             page = 1,
-//             limit = 10
-
-//         } = req.query
-
-//         // Bulid the 'WHERE' clause dynamically
-
-//         const whereClause = {
-//             isActive: true // Always only show active items
-//         }
-
-//         // Search Logic (Name or Description)
-
-//         if (keyword) {
-//             whereClause.OR = [
-//                 { name: { contains: keyword, mode: 'insensitive' } },
-//                 { description: { contains: keyword, mode: 'insesitive' } }
-//             ]
-//         }
-
-//         // Filter
-//         if (categoryId) whereClause.categoryId = categoryId;
-//         if (brandId) whereClause.brandId = brandId;
-
-//         // Price Range Filter
-//         if (minPrice || maxPrice) {
-//             whereClause.price = {};
-//             if (minPrice) whereClause.price.gte = parseFloat(minPrice);// Greater then or Equal
-//             if (maxPrice) whereClause.price.lte = parseFloat(maxPrice) // Less than or Equal
-//         }
-
-//         // Bulid the Order by Clause
-
-//         let orderBy = { createdAt: 'desc' } // Default : Newest first
-
-//         if (sort === 'price_low') orderBy = { price: 'asc' };
-//         if (sort === 'price_high') orderBy = { price: 'desc' };
-//         if (sort === 'name_asc') orderBy = { name: 'asc' }
-
-//         // Calculate Pagination
-
-//         const pageNum = parseInt(page);
-//         const limitNum = parseInt(limit);
-//         const skip = (page - 1) * limitNum;
-
-//         // 5. Execute Queries (Get Data + Count Total)
-//         // We run two quires : one for data , one to know total pages
-
-//         const [products, totalCount] = await Promise.all([
-//             prisma.product.findMany({
-//                 where: whereClause,
-//                 orderBy: orderBy,
-//                 skip: skip,
-//                 take: limitNum,
-//                 include: {
-//                     images: { take: 1 }, // Just show 1 image on the lisiting card
-//                     brand: { select: { name: true } }
-//                 }
-
-//             }),
-//             prisma.product.count({ where: whereClause })
-//         ])
-
-//         // Send Response 
-
-//         res.status(200).json({
-//             success: true,
-//             count: products.length,
-//             totalCount,
-//             totalPages: Math.ceil(totalCount / limitNum),
-//             currentPage: pageNum,
-//             products
-//         })
-//     } catch (error) {
-//         next(error)
-//     }
-// }
-
-
 export const getAllProduct = async (req, res, next) => {
     try {
         const {
-            keyword,
-            categoryId,
-            brandId,
-            minPrice,
-            maxPrice,
-            sort,
-            page = 1,
-            limit = 10
+            keyword, categoryId, brandId, minPrice, maxPrice, sort,
+            page = 1, limit = 10
         } = req.query;
 
         // 1. Build the 'WHERE' clause dynamically
-        const whereClause = {
-            is_active: true,  // Use the name from your schema (is_active vs isActive)
-            isDeleted: false  // Don't show soft-deleted items
-        };
+        const whereClause = { is_active: true };
 
-        // 2. Search Logic (Name or Description)
+        // 2. Search Logic (Name or SKU inside variants)
         if (keyword) {
             whereClause.OR = [
                 { name: { contains: keyword, mode: 'insensitive' } },
-                { description: { contains: keyword, mode: 'insensitive' } } // Fixed typo 'insesitive'
+                // 👇 Better search: Also search by Variant SKU!
+                { variants: { some: { sku: { contains: keyword, mode: 'insensitive' } } } }
             ];
         }
 
-        // 3. Filter by IDs (Must Convert String -> Int)
         if (categoryId) whereClause.categoryId = parseInt(categoryId);
         if (brandId) whereClause.brandId = parseInt(brandId);
 
-        // 4. Price Range Filter (CRITICAL CHANGE ⚠️)
-        // We must check if ANY variant matches the price range
+        // 3. Price Range Filter
         if (minPrice || maxPrice) {
             whereClause.variants = {
                 some: {
@@ -806,57 +831,34 @@ export const getAllProduct = async (req, res, next) => {
             };
         }
 
-        // 5. Build Sorting
-        // Note: Sorting by price is difficult with variants. 
-        // Best practice: Sort by Name or Date.
-        let orderBy = { createdAt: 'desc' }; // Default: Newest first
-
-        if (sort === 'name_asc') orderBy = { name: 'asc' };
-        if (sort === 'name_desc') orderBy = { name: 'desc' };
-
-        // 6. Pagination Math
+        // 4. Pagination Math
         const pageNum = parseInt(page);
         const limitNum = parseInt(limit);
         const skip = (pageNum - 1) * limitNum;
 
-        // 7. Execute Queries
+        // 5. Execute Queries
         const [products, totalCount] = await Promise.all([
             prisma.product.findMany({
                 where: whereClause,
-                orderBy: orderBy,
+                orderBy: { id: 'desc' }, // Swapped to ID since createdAt isn't in your Product schema
                 skip: skip,
                 take: limitNum,
                 include: {
-                    // Fetch Brand Name
-                    brand: { 
-                        select: { name: true } 
-                    },
-                    // Fetch ONE Variant to show the price on the card
-                    variants: {
-                        take: 1,
-                        select: { price_selling: true, price_mrp: true }
-                    }
+                    brand: { select: { name: true } },
+                    category: { select: { name: true } },
+                    variants: true // 👈 Fetch all variants so the frontend can expand the row
                 }
             }),
             prisma.product.count({ where: whereClause })
         ]);
 
-        // 8. Flatten Data for Frontend (Optional but clean)
-        // Moves the price from the nested variant up to the main object
-        const cleanProducts = products.map(p => ({
-            ...p,
-            price: p.variants[0]?.price_selling || 0, // Fallback if no variant
-            mrp: p.variants[0]?.price_mrp || 0,
-            image: p.images[0] // Just send the first image thumbnail
-        }));
-
         res.status(200).json({
             success: true,
-            count: cleanProducts.length,
+            count: products.length,
             totalCount,
             totalPages: Math.ceil(totalCount / limitNum),
             currentPage: pageNum,
-            products: cleanProducts
+            products: products // 👈 Send the raw products with their nested variants
         });
 
     } catch (error) {
@@ -988,7 +990,7 @@ export const getProductDetails = async (req, res, next) => {
 
         // 2. Select the "Default" Variant to show pricing
         // (Usually the first one, or the cheapest one)
-        const defaultVariant = product.variants[0]; 
+        const defaultVariant = product.variants[0];
 
         // Handle case where product has no variants (Edge case)
         if (!defaultVariant) {
@@ -1036,14 +1038,14 @@ export const getProductDetails = async (req, res, next) => {
         // 6. Construct Offers
         const offers = [];
         if (discountPercentage > 10) {
-            offers.push({ 
-                title: "Great Price", 
-                description: `You save ₹${saveAmount} on this item!` 
+            offers.push({
+                title: "Great Price",
+                description: `You save ₹${saveAmount} on this item!`
             });
         }
-        offers.push({ 
-            title: "Bank Offer", 
-            description: "5% Unlimited Cashback on Axis Bank Cards" 
+        offers.push({
+            title: "Bank Offer",
+            description: "5% Unlimited Cashback on Axis Bank Cards"
         });
 
         // 7. Send Final Response 
@@ -1058,7 +1060,7 @@ export const getProductDetails = async (req, res, next) => {
                 saveAmount,
                 availableOffers: offers,
                 // Keep the raw variants array so user can select "Blue" or "Red"
-                variants: product.variants 
+                variants: product.variants
             },
             relatedProducts: cleanRelated
         });

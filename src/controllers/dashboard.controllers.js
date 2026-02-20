@@ -31,7 +31,7 @@ export const getDashboardOverview = async (req, res, next) => {
       
       prisma.order.findMany({ where: { created_at: { gte: sevenDaysAgo } }, select: { created_at: true, total_amount: true } }),
       prisma.order.groupBy({ by: ['order_status'], _count: { id: true } }),
-      prisma.order.findMany({ take: 5, orderBy: { created_at: 'desc' }, include: { electrician: true, customer: true, shipping_address: true, orderItems: { include: { product: true } } } })
+      prisma.order.findMany({ take: 5, orderBy: { created_at: 'desc' }, include: { electrician: true, customer: true, shipping_address: true, orderItems: { include: { product_variant: { include: { product: true } } } } } })
     ]);
 
     const totalRevenue = Number(revenueAggregation._sum.total_amount) || 0;
@@ -100,65 +100,5 @@ export const getDashboardOverview = async (req, res, next) => {
   } catch (error) {
     console.error("Dashboard Aggregation Error:", error);
     next(error); 
-  }
-};
-
-
-
-export const exportBulkOrders = async (req, res) => {
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="sparkon_bulk_orders.csv"');
-
-  const csvStream = format({ headers: true });
-  csvStream.pipe(res);
-
-  try {
-    let skip = 0;
-    const take = 1000; 
-    let hasMoreData = true;
-
-    while (hasMoreData) {
-      const orders = await prisma.order.findMany({
-        skip: skip,
-        take: take,
-        // ✅ FIX 1: Changed 'createdAt' to 'created_at' based on your schema
-        orderBy: { created_at: 'desc' }, 
-        
-        // ✅ FIX 2: Changed 'user' to 'customer' and 'electrician' based on your schema
-        include: { 
-          customer: true,
-          electrician: true 
-        } 
-      });
-
-      if (orders.length === 0) {
-        hasMoreData = false;
-        break;
-      }
-
-      orders.forEach((order) => {
-        // Safely grab the name whether they are registered as a customer or electrician
-        const buyerName = order.customer?.name || order.electrician?.name || "Unknown Buyer";
-
-        csvStream.write({
-          "PO Number": `PO-${order.id}`,
-          "Buyer Name": buyerName,
-          // ✅ FIX 3: Mapped to your actual schema fields
-          "Status": order.order_status || "N/A",
-          "Payment Status": order.payment_status || "N/A",
-          "Total Amount (INR)": order.total_amount || 0,
-          "Total Paid (INR)": order.total_paid || 0,
-          "Date Ordered": order.created_at ? new Date(order.created_at).toISOString().split('T')[0] : "N/A"
-        });
-      });
-
-      skip += take; 
-    }
-
-    csvStream.end();
-
-  } catch (error) {
-    console.error("Export Error:", error);
-    res.status(500).end();
   }
 };

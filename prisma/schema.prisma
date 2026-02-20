@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql" // or "mysql"
+  provider = "postgresql" // Arrays like String[] only work in PostgreSQL, which matches your schema perfectly!
 }
 
 // --- USERS & AUTH ---
@@ -40,11 +40,11 @@ model UserCustomer {
 model ElectricianCustomer {
   id              Int       @id @default(autoincrement())
   phone_number    String    @unique @db.VarChar(15)
-  referral_code   String    @unique @db.VarChar(10) // Fixed Typo
+  referral_code   String    @unique @db.VarChar(10) 
   kyc_stat        KycStatus @default(PENDING)
   pan_card_number String    @default("PENDING") @db.VarChar(10)
   wallet_balance  Int       @default(0)
-  bank_account    Json? // Renamed for clarity
+  bank_account    Json?     
   is_active       Boolean   @default(true)
   name            String    @db.VarChar(150)
 
@@ -84,12 +84,10 @@ model UserAddress {
 // --- PRODUCTS & INVENTORY ---
 
 model Category {
-  id              Int     @id @default(autoincrement())
-  parent_id       Int?
-  name            String  @db.VarChar(150)
-  image_url       String
-  image_public_id String
-  is_active       Boolean @default(true)
+  id        Int     @id @default(autoincrement())
+  parent_id Int?
+  name      String  @unique @db.VarChar(150)
+  is_active Boolean @default(true)
 
   products Product[]
 
@@ -97,16 +95,15 @@ model Category {
 }
 
 model Banner {
-  id       String @id @default(uuid())
-  imageUrl String // The Cloudinary URL
-  publicId String // Cloudinary ID (needed to delete image later)
+  id       String  @id @default(uuid())
+  imageUrl String  
+  publicId String  
 
-  title    String? // e.g. "Diwali Sale"
+  title    String? 
   isActive Boolean @default(true)
 
-  // Navigation Logic (Where does the app go when clicked?)
-  targetScreen String // e.g., "ProductDetails", "CategoryList", "WebView"
-  targetId     String? // e.g., Product ID "123" or Category ID "wires"
+  targetScreen String 
+  targetId     String? 
 
   createdAt DateTime @default(now())
 
@@ -114,38 +111,58 @@ model Banner {
 }
 
 model Product {
-  id              Int    @id @default(autoincrement())
-  name            String @db.VarChar(150) // "Lazer Cooler"
-  description     String                  //  General details
-  tags            String[]         @default([])
-  gst_tax_per     Int
-  images          String[]          @default([])  // Store ["url1" , "url2"]
-  is_active       Boolean          @default(true)// Relations
-  variants        ProductVariant[]
-  category        Category?        @relation(fields: [categoryId], references: [id])
-  categoryId      Int? 
-  orderItems      OrderItem[]
-  brand           Brand?           @relation(fields: [brandId], references: [id])
-  brandId         Int?
-  cartItems       CartItem[]
-  reviews         Review[]
+  id          Int    @id @default(autoincrement())
+  name        String @db.VarChar(150)
+  description String @db.Text
+
+  is_featured Boolean @default(false)
+
+  // --- Packaging & Logistics ---
+  uom           String @default("Piece") // "Coil", "Piece", "Box"
+  master_carton Int? // Items per big shipping box
+
+  // --- Trust & Compliance ---
+  warranty      String? @db.VarChar(50) 
+  is_isi_marked Boolean @default(false) 
+  return_policy String? @default("7 Days")
+  hsnCode  String?
+  gst_tax_per Int?
+
+  tags      String[] @default([])
+  is_active Boolean  @default(true)
+
+  // Relations
+  variants   ProductVariant[]
+  category   Category?        @relation(fields: [categoryId], references: [id])
+  categoryId Int?
+  brand      Brand?           @relation(fields: [brandId], references: [id])
+  brandId    Int?
+
+  reviews    Review[]
 
   @@map("products")
 }
 
 model ProductVariant {
-  id          Int   @id @default(autoincrement())
-  product_id  Int     // The specific differences
-  color       String
-  sku          String  @unique @db.VarChar(20)
-  price_mrp     Decimal
-  price_selling Decimal
-  stock_quantity  Int 
-  product   Product @relation(fields: [product_id] , references: [id])
+  id             Int      @id @default(autoincrement())
+  product_id     Int
+  moq            Int      @default(1) // Minimum Order Qty
   
+  // --- Electrical Specific Variants ---
+  sku            String   @unique @db.VarChar(50)
+  color          String?  // Red, Yellow, Blue, Black, Green
+  size_rating    String?  // "1.5 sq mm", "16 Amp", "9 Watt"
+  images         String[] @default([])
+  price_mrp      Decimal
+  price_selling  Decimal
+  stock_quantity Int
+  boxpacking     Int      // Items per inner box
+  
+  product    Product     @relation(fields: [product_id], references: [id])
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
   @@map("product_variants")
-
-
 }
 
 // --- ORDERS & PAYMENTS ---
@@ -156,7 +173,7 @@ model Order {
   electrician_id            Int? // For personal purchase
   attributed_electrician_id Int? // For commission logic
 
-  shipping_address_id Int //Order Send in Which Address
+  shipping_address_id Int 
   shipping_address    UserAddress @relation(fields: [shipping_address_id], references: [id])
 
   total_amount            Decimal @default(0)
@@ -166,7 +183,7 @@ model Order {
   total_electrician_point Decimal @default(0)
 
   order_status   OrderStatus   @default(PROCESSING)
-  payment_status PaymentStatus // Changed to clearer Enum
+  payment_status PaymentStatus 
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -184,16 +201,16 @@ model Order {
 }
 
 model OrderItem {
-  id                Int     @id @default(autoincrement())
-  order_id          Int
-  product_id        Int
-  quantity          Int
-  frozen_price      Decimal
-  frozen_commission Decimal
-  subtotal          Decimal
+  id                 Int     @id @default(autoincrement())
+  order_id           Int
+  product_variant_id Int     // 👈 FIXED: Links directly to the variant
+  quantity           Int
+  frozen_price       Decimal
+  frozen_commission  Decimal
+  subtotal           Decimal
 
-  order   Order   @relation(fields: [order_id], references: [id])
-  product Product @relation(fields: [product_id], references: [id])
+  order           Order          @relation(fields: [order_id], references: [id])
+  product_variant ProductVariant @relation(fields: [product_variant_id], references: [id]) // 👈 FIXED
 
   @@map("order_items")
 }
@@ -243,15 +260,13 @@ model WalletLedger {
 
 model Brand {
   id   Int    @id @default(autoincrement())
-  name String @unique @db.VarChar(100) // "Havells", "Usha"
+  name String @unique @db.VarChar(100) 
 
-  // Logos are optional (?) but highly recommended for the App UI
   image_url       String?
   image_public_id String?
 
   is_active Boolean @default(true)
 
-  // Relation: One Brand has Many Products
   products Product[]
 
   createdAt DateTime @default(now())
@@ -265,8 +280,8 @@ model PayoutRequest {
   electrician_id Int
   amount         Decimal
   status         PayoutStatus @default(REQUESTED)
-  bank_utr       String?      @db.VarChar // Nullable if pending
-  processed_at   DateTime? // Nullable if pending
+  bank_utr       String?      @db.VarChar 
+  processed_at   DateTime? 
 
   electrician ElectricianCustomer @relation(fields: [electrician_id], references: [id])
 
@@ -289,13 +304,13 @@ model CartSession {
 }
 
 model CartItem {
-  id         Int @id @default(autoincrement())
-  cart_id    Int
-  product_id Int
-  quantity   Int
+  id                 Int @id @default(autoincrement())
+  cart_id            Int
+  product_variant_id Int // 👈 FIXED: Links directly to the variant
+  quantity           Int
 
-  cart    CartSession @relation(fields: [cart_id], references: [id])
-  product Product     @relation(fields: [product_id], references: [id])
+  cart            CartSession    @relation(fields: [cart_id], references: [id])
+  product_variant ProductVariant @relation(fields: [product_variant_id], references: [id]) // 👈 FIXED
 
   @@map("cart_items")
 }
@@ -323,14 +338,13 @@ model Notification {
   customer_id    Int?
   electrician_id Int?
 
-  title   String @db.VarChar(100) // e.g., "Order Shipped"
-  message String @db.VarChar(255) // e.g., "Your wire bundle is on the way."
-  type    String @default("INFO") // "ORDER", "PAYMENT", "SYSTEM"
+  title   String @db.VarChar(100) 
+  message String @db.VarChar(255) 
+  type    String @default("INFO") 
 
   is_read    Boolean  @default(false)
   created_at DateTime @default(now())
 
-  // Relations
   customer    UserCustomer?        @relation(fields: [customer_id], references: [id])
   electrician ElectricianCustomer? @relation(fields: [electrician_id], references: [id])
 
@@ -375,7 +389,7 @@ enum OrderStatus {
 
 enum PaymentStatus {
   PENDING
-  SUCCESS // Merged 'PAID' and 'SUCCESS' into one standard
+  SUCCESS 
   FAILED
   REFUNDED
 }
