@@ -581,15 +581,15 @@ export const createProduct = async (req, res, next) => {
 
 // Update Product (Full Edit)
 
+import { v2 as cloudinary } from 'cloudinary'; // Make sure you import cloudinary or your delete utility
+
 export const updateProduct = async (req, res, next) => {
-    let newUploadedImageData = [];
+    // 🚀 NEW: Keep track of uploaded image IDs for rollback
+    let uploadedCloudinaryIds = []; 
 
     try {
         const { id } = req.params;
-        // 1. Extract Base Product Text
-        const { name, description, categoryId, brandId, tags, base_images_to_keep, variants } = req.body;
-        
-        // upload.any() puts ALL files in an array called req.files.
+        const { name, description, categoryId, brandId, tags, variants } = req.body;
         const allFiles = req.files || [];
 
         const existingProduct = await prisma.product.findUnique({ where: { id: parseInt(id) } });
@@ -599,22 +599,31 @@ export const updateProduct = async (req, res, next) => {
         const parsedVariants = variants ? JSON.parse(variants) : [];
 
         // ==========================================
-        // 🖼️ 2. PROCESS BASE PRODUCT IMAGES
+        // ☁️ 1. CLOUDINARY UPLOADS (Done BEFORE the DB Transaction)
         // ==========================================
-        let finalBaseImages = base_images_to_keep ? JSON.parse(base_images_to_keep) : [];
-        
-        // Find files meant for base product
-        const baseNewFiles = allFiles.filter(f => f.fieldname === 'base_images');
-        
-        if (baseNewFiles.length > 0) {
-            const uploadPromises = baseNewFiles.map(f => uploadOnCloudinary(f.path));
-            const results = await Promise.all(uploadPromises);
-            const urls = results.filter(img => img != null).map(img => img.secure_url);
-            finalBaseImages = [...finalBaseImages, ...urls];
+        for (let i = 0; i < parsedVariants.length; i++) {
+            const variantFiles = allFiles.filter(f => f.fieldname === `variant_${i}_images`);
+            
+            if (variantFiles.length > 0) {
+                const vUploadPromises = variantFiles.map(f => uploadOnCloudinary(f.path));
+                const vResults = await Promise.all(vUploadPromises);
+                
+                const successfulUploads = vResults.filter(img => img != null);
+                
+                // Track the public_ids so we can delete them if the DB fails later
+                successfulUploads.forEach(img => {
+                    if(img.public_id) uploadedCloudinaryIds.push(img.public_id);
+                });
+
+                // Temporarily attach the new URLs to the parsed variant object
+                parsedVariants[i].newly_uploaded_urls = successfulUploads.map(img => img.secure_url);
+            } else {
+                parsedVariants[i].newly_uploaded_urls = [];
+            }
         }
 
         // ==========================================
-        // 💾 3. DATABASE TRANSACTION
+        // 💾 2. DATABASE TRANSACTION
         // ==========================================
         const result = await prisma.$transaction(async (tx) => {
             
@@ -622,7 +631,9 @@ export const updateProduct = async (req, res, next) => {
             const updatedProduct = await tx.product.update({
                 where: { id: parseInt(id) },
                 data: {
-                    name, description, tags: parsedTags, images: finalBaseImages,
+                    name, 
+                    description, 
+                    tags: parsedTags, 
                     categoryId: categoryId ? parseInt(categoryId) : undefined,
                     brandId: brandId ? parseInt(brandId) : undefined
                 }
@@ -631,22 +642,14 @@ export const updateProduct = async (req, res, next) => {
             // B. Update Every Variant
             for (let i = 0; i < parsedVariants.length; i++) {
                 const v = parsedVariants[i];
-                if (!v.id) continue; // Only updating existing variants here
+                if (!v.id) continue; 
 
-                // Image Logic for THIS specific variant
-                let variantFinalImages = v.images_to_keep || [];
-                
-                // Find files explicitly uploaded for this variant index
-                const variantFiles = allFiles.filter(f => f.fieldname === `variant_${i}_images`);
-                
-                if (variantFiles.length > 0) {
-                    const vUploadPromises = variantFiles.map(f => uploadOnCloudinary(f.path));
-                    const vResults = await Promise.all(vUploadPromises);
-                    const vUrls = vResults.filter(img => img != null).map(img => img.secure_url);
-                    variantFinalImages = [...variantFinalImages, ...vUrls];
-                }
+                // Combine old images kept by the user + the newly uploaded ones we processed above
+                const variantFinalImages = [
+                    ...(v.images_to_keep || []), 
+                    ...v.newly_uploaded_urls
+                ];
 
-                // Save Variant
                 await tx.productVariant.update({
                     where: { id: parseInt(v.id) },
                     data: {
@@ -656,7 +659,7 @@ export const updateProduct = async (req, res, next) => {
                         stock_quantity: parseInt(v.stock_quantity),
                         price_mrp: parseFloat(v.price_mrp),
                         price_selling: parseFloat(v.price_selling),
-                        images: variantFinalImages
+                        images: variantFinalImages 
                     }
                 });
             }
@@ -668,12 +671,27 @@ export const updateProduct = async (req, res, next) => {
 
     } catch (error) {
         console.error("Update Error:", error);
-        // Note: In a production environment with multi-file uploads, 
-        // thorough Cloudinary rollback logic goes here if TX fails.
+
+        // ==========================================
+        // 🗑️ 3. ROLLBACK CLOUDINARY UPLOADS ON FAILURE
+        // ==========================================
+        if (uploadedCloudinaryIds.length > 0) {
+            console.log(`Rolling back ${uploadedCloudinaryIds.length} images from Cloudinary due to DB error...`);
+            
+            for (const publicId of uploadedCloudinaryIds) {
+                try {
+                    // Destroy the image on Cloudinary
+                    await cloudinary.uploader.destroy(publicId);
+                    console.log(`Deleted orphaned image: ${publicId}`);
+                } catch (cloudinaryError) {
+                    console.error(`Failed to delete orphaned image ${publicId}:`, cloudinaryError);
+                }
+            }
+        }
+
         next(error);
     }
 };
-
 // 3. Quick  Stock Update (Fast!)
 // Use this whne new inventory arrives
 
