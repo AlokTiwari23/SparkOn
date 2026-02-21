@@ -1,6 +1,4 @@
-
-
-import { success } from "zod";
+import PDFDocument from 'pdfkit-table';
 import prisma from "../db/db.prisam.js"
 import { NotFoundError, ValidationError } from "../middlewares/errorHandler/index.js";
 import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/Cloudinary.js";
@@ -850,6 +848,74 @@ export const getAllProduct = async (req, res, next) => {
         next(error);
     }
 }
+export const getAllAdminProduct = async (req, res, next) => {
+    try {
+        const {
+            keyword, categoryId, brandId, minPrice, maxPrice, sort,
+            page = 1, limit = 10
+        } = req.query;
+
+        // 🚀 FIXED: Start with an empty object instead of forcing is_active: true
+        const whereClause = {};
+
+        // 2. Search Logic (Name or SKU inside variants)
+        if (keyword) {
+            whereClause.OR = [
+                { name: { contains: keyword, mode: 'insensitive' } },
+                // Better search: Also search by Variant SKU!
+                { variants: { some: { sku: { contains: keyword, mode: 'insensitive' } } } }
+            ];
+        }
+
+        if (categoryId) whereClause.categoryId = parseInt(categoryId);
+        if (brandId) whereClause.brandId = parseInt(brandId);
+
+        // 3. Price Range Filter
+        if (minPrice || maxPrice) {
+            whereClause.variants = {
+                some: {
+                    price_selling: {
+                        gte: minPrice ? parseFloat(minPrice) : undefined,
+                        lte: maxPrice ? parseFloat(maxPrice) : undefined
+                    }
+                }
+            };
+        }
+
+        // 4. Pagination Math
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+
+        // 5. Execute Queries
+        const [products, totalCount] = await Promise.all([
+            prisma.product.findMany({
+                where: whereClause,
+                orderBy: { id: 'desc' }, // Swapped to ID since createdAt isn't in your Product schema
+                skip: skip,
+                take: limitNum,
+                include: {
+                    brand: { select: { name: true } },
+                    category: { select: { name: true } },
+                    variants: true // 👈 Fetch all variants so the frontend can expand the row
+                }
+            }),
+            prisma.product.count({ where: whereClause })
+        ]);
+
+        res.status(200).json({
+            success: true,
+            count: products.length,
+            totalCount,
+            totalPages: Math.ceil(totalCount / limitNum),
+            currentPage: pageNum,
+            products: products // 👈 Send the raw products with their nested variants
+        });
+
+    } catch (error) {
+        next(error);
+    }
+}
 
 
 export const getProductSuggestion = async (req, res, next) => {
@@ -1078,21 +1144,39 @@ export const getDeals = async (req, res, next) => {
 export const toggleProductStatus = async (req, res, next) => {
     try {
         const { id } = req.params;
+        const productId = parseInt(id);
 
-        const product = await prisma.product.findUnique({ where: { id: parseInt(id) } });
-        if (!product) return next(new ValidationError("Product not found"));
+        // 1. Find the current product to get its current status
+        const product = await prisma.product.findUnique({ where: { id: productId } });
+        if (!product) return res.status(404).json({ message: "Product not found" });
 
-        const updatedProduct = await prisma.product.update({
-            where: { id: parseInt(id) },
-            data: { isActive: !product.isActive } // Flip the status
-        });
+        // 2. Flip the status
+        const newStatus = !product.is_active;
+
+        // 3. 🚀 NEW: Use a transaction to update the Base Product AND all its Variants
+        const [updatedProduct, updatedVariants] = await prisma.$transaction([
+            // Action A: Update the base product
+            prisma.product.update({
+                where: { id: productId },
+                data: { is_active: newStatus }
+            }),
+            
+            // Action B: Update all variants that belong to this product
+            prisma.productVariant.updateMany({
+                where: { product_id: productId }, // Matches the foreign key in your schema
+                data: { is_active: newStatus }
+            })
+        ]);
 
         res.status(200).json({
             success: true,
-            message: `Product is now ${updatedProduct.isActive ? 'Active' : 'Inactive'}`,
-            isActive: updatedProduct.isActive
+            message: `Product and ${updatedVariants.count} variants are now ${updatedProduct.is_active ? 'Active' : 'Inactive'}`,
+            is_active: updatedProduct.is_active
         });
-    } catch (error) { next(error); }
+        
+    } catch (error) { 
+        next(error); 
+    }
 };
 
 // 📦 BULK RULES (Set Min Qty / Case Qty)
@@ -1136,3 +1220,181 @@ export const deleteBulkRule = async (req, res, next) => {
     } catch (error) { next(error); }
 };
 
+
+export const toggleVariantStatus = async (req, res, next) => {
+    try {
+        const { variantId } = req.params;
+        
+        // Find the current variant to get its existing status
+        const variant = await prisma.productVariant.findUnique({ 
+            where: { id: parseInt(variantId) } 
+        });
+        
+        if (!variant) return res.status(404).json({ message: "Variant not found" });
+
+        // Flip the boolean value
+        const updatedVariant = await prisma.productVariant.update({
+            where: { id: parseInt(variantId) },
+            data: { is_active: !variant.is_active }
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: `Variant is now ${updatedVariant.is_active ? 'Active' : 'Inactive'}`,
+            is_active: updatedVariant.is_active 
+        });
+
+    } catch (error) {
+        console.error("Toggle Variant Error:", error);
+        next(error);
+    }
+};
+
+
+
+export const exportInventoryPDF = async (req, res, next) => {
+    try {
+        const isLowStockReport = req.path.includes('low-stock');
+        const reportTitle = isLowStockReport ? 'LOW STOCK ALERT REPORT' : 'MASTER INVENTORY CATALOG';
+        const fileName = isLowStockReport ? 'Low_Stock_Report.pdf' : 'Master_Inventory.pdf';
+
+        // 1. Fetch Data
+        const products = await prisma.product.findMany({
+            include: {
+                category: { select: { name: true } },
+                variants: true
+            },
+            orderBy: { id: 'desc' }
+        });
+
+        const tableRows = [];
+        let totalItems = 0;
+
+        // 2. Format Data 
+        products.forEach(product => {
+            if (!product.variants || product.variants.length === 0) return;
+
+            product.variants.forEach(variant => {
+                const moq = variant.moq || 1;
+                const isLowStock = variant.stock_quantity <= moq;
+
+                if (isLowStockReport && !isLowStock) return;
+
+                totalItems++;
+
+                const specs = `${variant.color || '-'} / ${variant.size_rating || '-'}`;
+                const pricing = `MRP: Rs.${variant.price_mrp}\nSell: Rs.${variant.price_selling}`;
+                const packaging = `Box: ${variant.boxpacking || '-'}\nMOQ: ${moq}`;
+                const status = variant.is_active !== false ? 'Active' : 'Hidden';
+
+                tableRows.push([
+                    variant.sku,
+                    product.name,
+                    product.category?.name || '-',
+                    specs,
+                    packaging,
+                    status,
+                    pricing, 
+                    `${variant.stock_quantity}` 
+                ]);
+            });
+        });
+
+        // 3. Configure HTTP Headers
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+        // 4. Initialize PDF (Landscape A4)
+        const doc = new PDFDocument({ 
+            margin: 40, 
+            size: 'A4', 
+            layout: 'landscape',
+            bufferPages: true 
+        });
+
+        doc.pipe(res);
+
+        // ==========================================
+        // 🎨 5. PREMIUM HEADER (FIXED SPACING)
+        // ==========================================
+        // The printable width of Landscape A4 with 40px margins is 761.89
+        const printableWidth = 761.89;
+
+        // Left Side
+        doc.fontSize(26).font('Helvetica-Bold').fillColor('#0ea5e9').text('SparkOn', 40, 40);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748b').text('INVENTORY MANAGEMENT', 40, 75);
+
+        // Right Side (Aligned to the exact right edge using 'width')
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text(reportTitle, 40, 40, { align: 'right', width: printableWidth });
+        doc.fontSize(10).font('Helvetica').fillColor('#64748b').text(`Date: ${new Date().toLocaleDateString('en-IN')}`, 40, 60, { align: 'right', width: printableWidth });
+        doc.fontSize(10).font('Helvetica').fillColor('#64748b').text(`Items Listed: ${totalItems}`, 40, 75, { align: 'right', width: printableWidth });
+
+        // Divider line pushed down to Y: 105 to give breathing room
+        doc.moveTo(40, 105).lineTo(40 + printableWidth, 105).lineWidth(1).strokeColor('#e2e8f0').stroke();
+
+        // ==========================================
+        // 📊 6. THE DATA TABLE
+        // ==========================================
+        if (tableRows.length > 0) {
+            const table = {
+                headers: [
+                    { label: "SKU", width: 85 },
+                    { label: "PRODUCT DESCRIPTION", width: 230 }, // Expanded for long names
+                    { label: "CATEGORY", width: 95 },
+                    { label: "SPECIFICATIONS", width: 90 },
+                    { label: "PACKAGING", width: 70 },
+                    { label: "STATUS", width: 55 },
+                    { label: "PRICE (Rs.)", width: 80, align: 'right' }, // Fixed Rupee symbol text
+                    { label: "STOCK", width: 55, align: 'right' }
+                ],
+                rows: tableRows,
+            };
+
+            await doc.table(table, {
+                startY: 125, // 🚀 FIXED: Pushed the table 20 pixels below the divider line
+                padding: 6,
+                columnSpacing: 10,
+                divider: {
+                    header: { disabled: false, width: 2, opacity: 1, color: '#cbd5e1' }, 
+                    horizontal: { disabled: false, width: 0.5, opacity: 1, color: '#f1f5f9' },
+                },
+                prepareHeader: () => doc.font("Helvetica-Bold").fontSize(8).fillColor('#64748b'),
+                prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
+                    if (indexColumn === 7 && parseInt(row[7]) <= 10) {
+                        doc.font("Helvetica-Bold").fontSize(9).fillColor('#ef4444'); 
+                    } else {
+                        doc.font("Helvetica").fontSize(9).fillColor('#334155');
+                    }
+                }
+            });
+        } else {
+            doc.moveDown(4);
+            doc.fontSize(12).font('Helvetica').fillColor('#94a3b8').text(
+                'No products match this report criteria.', 
+                { align: 'center', width: printableWidth }
+            );
+        }
+
+        // ==========================================
+        // 📄 7. AUTO PAGE NUMBERS
+        // ==========================================
+        const pages = doc.bufferedPageRange();
+        for (let i = 0; i < pages.count; i++) {
+            doc.switchToPage(i);
+            doc.fontSize(8).font('Helvetica').fillColor('#94a3b8').text(
+                `Page ${i + 1} of ${pages.count}`,
+                40,
+                560,
+                { align: 'center', width: printableWidth }
+            );
+        }
+
+        doc.end();
+
+    } catch (error) {
+        console.error("PDF Export Error:", error);
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: "Failed to generate PDF" });
+        }
+    }
+};

@@ -147,7 +147,7 @@ model ProductVariant {
   id             Int      @id @default(autoincrement())
   product_id     Int
   moq            Int      @default(1) // Minimum Order Qty
-  
+  is_active      Boolean  @default(true) // 🚀 ADD THIS LINE
   // --- Electrical Specific Variants ---
   sku            String   @unique @db.VarChar(50)
   color          String?  // Red, Yellow, Blue, Black, Green
