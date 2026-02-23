@@ -1,6 +1,6 @@
 import express from "express"
 import {  verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
-import { createBanner, createBrand, createCategory, exportInventoryPDF,getAllAdminProduct,createProduct,toggleVariantStatus, deleteBanner, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getHomeBanner, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock ,createProductVariant} from "../controllers/product.controllers.js"
+import { createBanner, createBrand, createCategory,updateGlobalProductPrice, exportInventoryPDF,getAllAdminProduct,createProduct,toggleVariantStatus, deleteBanner, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getHomeBanner, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock ,createProductVariant} from "../controllers/product.controllers.js"
 import { isAdmin } from "../middlewares/authentication/isAuthorizedRoles.js"
 import { upload } from "../utils/multer.js"
 const productrouter = express.Router()
@@ -42,7 +42,7 @@ productrouter.get('/export/low-stock-pdf', verfiyToken ,isAdmin, exportInventory
 productrouter.post('/banner', verfiyToken , isAdmin, upload.single('banner'), createBanner)
 productrouter.delete('/banners/:id' , verfiyToken , isAdmin , deleteBanner)
 productrouter.patch('/:id/marketing-tags' , verfiyToken , isAdmin , updateProductMarketingTags)
-
+productrouter.patch("/:id/global-price", verfiyToken, isAdmin, updateGlobalProductPrice);
 
 // --- Setup Data Population
 productrouter.post('/categories' , verfiyToken , isAdmin, upload.single("image") , createCategory)

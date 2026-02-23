@@ -2,8 +2,9 @@ import PDFDocument from 'pdfkit-table';
 import prisma from "../db/db.prisam.js"
 import { NotFoundError, ValidationError } from "../middlewares/errorHandler/index.js";
 import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/Cloudinary.js";
-
-
+import SVGtoPDF from 'svg-to-pdfkit';
+import fs from 'fs';
+import puppeteer from 'puppeteer';
 
 // ==========================================
 // 🚀 ADD NEW VARIANT TO EXISTING PRODUCT
@@ -1251,145 +1252,334 @@ export const toggleVariantStatus = async (req, res, next) => {
 };
 
 
+// product.controllers.js
 
-export const exportInventoryPDF = async (req, res, next) => {
+export const updateGlobalProductPrice = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { price_selling, price_mrp } = req.body;
+
+        if (!price_selling) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Selling price is required for global update" 
+            });
+        }
+
+        // 🚀 FIX: We only update the Variants table, since the Base Product table 
+        // doesn't have price columns!
+        const updatedVariants = await prisma.productVariant.updateMany({
+            where: { product_id: parseInt(id) },
+            data: {
+                price_selling: parseFloat(price_selling),
+                price_mrp: parseFloat(price_mrp || price_selling)
+            }
+        });
+
+        // If no variants were updated, let the frontend know
+        if (updatedVariants.count === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No variants found to update for this product."
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Global price successfully updated across ${updatedVariants.count} variants!`,
+            count: updatedVariants.count
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+
+export const exportInventoryPDF = async (req, res) => {
     try {
         const isLowStockReport = req.path.includes('low-stock');
-        const reportTitle = isLowStockReport ? 'LOW STOCK ALERT REPORT' : 'MASTER INVENTORY CATALOG';
-        const fileName = isLowStockReport ? 'Low_Stock_Report.pdf' : 'Master_Inventory.pdf';
+        const reportTitle = isLowStockReport
+            ? 'Low Stock Alert Report'
+            : 'Master Inventory Report';
+
+        const fileName = isLowStockReport
+            ? 'Low_Stock_Report.pdf'
+            : 'Master_Inventory.pdf';
 
         // 1. Fetch Data
         const products = await prisma.product.findMany({
-            include: {
+            select: {
+                name: true,
                 category: { select: { name: true } },
-                variants: true
-            },
-            orderBy: { id: 'desc' }
+                variants: {
+                    select: {
+                        sku: true,
+                        color: true,
+                        size_rating: true,
+                        stock_quantity: true,
+                        price_selling: true,
+                        moq: true
+                    }
+                }
+            }
         });
 
-        const tableRows = [];
+        // 2. Process Data into Modern HTML Table Rows
+        let tableRowsHTML = '';
         let totalItems = 0;
 
-        // 2. Format Data 
-        products.forEach(product => {
-            if (!product.variants || product.variants.length === 0) return;
-
-            product.variants.forEach(variant => {
+        for (const product of products) {
+            for (const variant of product.variants || []) {
                 const moq = variant.moq || 1;
                 const isLowStock = variant.stock_quantity <= moq;
 
-                if (isLowStockReport && !isLowStock) return;
+                if (isLowStockReport && !isLowStock) continue;
 
                 totalItems++;
 
-                const specs = `${variant.color || '-'} / ${variant.size_rating || '-'}`;
-                const pricing = `MRP: Rs.${variant.price_mrp}\nSell: Rs.${variant.price_selling}`;
-                const packaging = `Box: ${variant.boxpacking || '-'}\nMOQ: ${moq}`;
-                const status = variant.is_active !== false ? 'Active' : 'Hidden';
+                // Beautiful pill badges for stock status
+                const badgeClass = isLowStock ? 'badge-danger' : 'badge-success';
+                const stockText = isLowStock ? `${variant.stock_quantity} (Low)` : variant.stock_quantity;
 
-                tableRows.push([
-                    variant.sku,
-                    product.name,
-                    product.category?.name || '-',
-                    specs,
-                    packaging,
-                    status,
-                    pricing, 
-                    `${variant.stock_quantity}` 
-                ]);
-            });
+                tableRowsHTML += `
+                    <tr>
+                        <td class="font-mono">${variant.sku || '-'}</td>
+                        <td class="font-bold text-main">${product.name || '-'}</td>
+                        <td>${product.category?.name || '-'}</td>
+                        <td>${variant.color || '-'} / ${variant.size_rating || '-'}</td>
+                        <td class="text-right font-medium">₹${Number(variant.price_selling).toFixed(2)}</td>
+                        <td class="text-right">
+                            <span class="badge ${badgeClass}">${stockText}</span>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        if (totalItems === 0) {
+            tableRowsHTML = `<tr><td colspan="6" class="empty-state">No inventory records found fitting the criteria.</td></tr>`;
+        }
+
+        // 3. Securely Load Your SVG Logo
+        let logoBase64 = '';
+        const logoPath = 'D:\\Spark On\\public\\temp\\logo.svg';
+        if (fs.existsSync(logoPath)) {
+            const svgData = fs.readFileSync(logoPath);
+            logoBase64 = `data:image/svg+xml;base64,${Buffer.from(svgData).toString('base64')}`;
+        }
+
+        // 4. Premium HTML & CSS Template
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    :root {
+                        --primary: #0056b3;
+                        --primary-light: #eff6ff;
+                        --text-main: #0f172a;
+                        --text-muted: #64748b;
+                        --border: #e2e8f0;
+                        --bg-light: #f8fafc;
+                    }
+                    
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        color: #334155;
+                        margin: 0;
+                        padding: 0;
+                        -webkit-font-smoothing: antialiased;
+                    }
+
+                    /* Top decorative bar */
+                    .top-accent {
+                        height: 8px;
+                        background: var(--primary);
+                        width: 100%;
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                    }
+
+                    .container {
+                        padding: 30px 40px;
+                    }
+
+                    /* Header Layout */
+                    .header {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        border-bottom: 2px solid var(--border);
+                        padding-bottom: 25px;
+                        margin-bottom: 25px;
+                        margin-top: 15px;
+                    }
+
+                    .logo-container img {
+                        max-height: 60px; /* Perfect sizing for tall logos */
+                        max-width: 280px;
+                        object-fit: contain;
+                    }
+
+                    .title-container {
+                        text-align: right;
+                    }
+
+                    .shop-name {
+                        font-size: 13px;
+                        color: var(--primary);
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                        margin: 0 0 6px 0;
+                    }
+
+                    .report-title {
+                        font-size: 26px;
+                        color: var(--text-main);
+                        font-weight: 800;
+                        letter-spacing: -0.5px;
+                        margin: 0 0 12px 0;
+                    }
+
+                    /* Little Pill Tags for Metadata */
+                    .meta-tags {
+                        display: flex;
+                        gap: 10px;
+                        justify-content: flex-end;
+                    }
+
+                    .meta-tag {
+                        background: var(--bg-light);
+                        border: 1px solid var(--border);
+                        padding: 5px 12px;
+                        border-radius: 6px;
+                        font-size: 11px;
+                        color: var(--text-muted);
+                        font-weight: 600;
+                    }
+
+                    /* Modern Table Design */
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                    }
+
+                    tr {
+                        /* Prevents a row from splitting across two pages */
+                        page-break-inside: avoid; 
+                    }
+
+                    th {
+                        background-color: var(--bg-light);
+                        color: var(--text-muted);
+                        font-size: 11px;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        padding: 12px 16px;
+                        text-align: left;
+                        border-bottom: 2px solid var(--border);
+                    }
+
+                    td {
+                        padding: 14px 16px;
+                        font-size: 12px;
+                        border-bottom: 1px solid var(--border);
+                        vertical-align: middle;
+                    }
+
+                    /* Typography Utilities */
+                    .text-right { text-align: right; }
+                    .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: var(--text-muted); }
+                    .font-bold { font-weight: 600; }
+                    .font-medium { font-weight: 500; }
+                    .text-main { color: var(--text-main); }
+
+                    /* Stock Badges */
+                    .badge {
+                        padding: 5px 10px;
+                        border-radius: 20px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        display: inline-block;
+                        min-width: 45px;
+                        text-align: center;
+                    }
+                    .badge-success { background: #dcfce7; color: #166534; }
+                    .badge-danger { background: #fee2e2; color: #991b1b; }
+
+                    .empty-state { text-align: center; padding: 40px; color: var(--text-muted); font-size: 14px; }
+                </style>
+            </head>
+            <body>
+                
+                
+                <div class="container">
+                    <div class="header">
+                        <div class="logo-container">
+                            ${logoBase64 ? `<img src="${logoBase64}" alt="SparkOn Logo" />` : `<h2 style="margin:0; color:#0056b3;">SparkOn</h2>`}
+                        </div>
+                        <div class="title-container">
+                            <p class="shop-name">Bajrang Electric Store</p>
+                            <h1 class="report-title">${reportTitle}</h1>
+                            <div class="meta-tags">
+                                <div class="meta-tag">📅 ${new Date().toLocaleDateString('en-IN')}</div>
+                                <div class="meta-tag">📦 ${totalItems} Items</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 15%">SKU</th>
+                                <th style="width: 30%">Product Name</th>
+                                <th style="width: 15%">Category</th>
+                                <th style="width: 15%">Specification</th>
+                                <th style="width: 10%" class="text-right">Price</th>
+                                <th style="width: 15%" class="text-right">Stock</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tableRowsHTML}
+                        </tbody>
+                    </table>
+                </div>
+            </body>
+            </html>
+        `;
+
+        // 5. Generate PDF using Puppeteer
+        const browser = await puppeteer.launch({ headless: 'new' });
+        const page = await browser.newPage();
+        
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            landscape: true,
+            printBackground: true, // Crucial for rendering the badges and background colors
+            margin: { top: '20px', right: '0px', bottom: '50px', left: '0px' }, // Controlled via CSS padding instead
+            displayHeaderFooter: true,
+            headerTemplate: '<div></div>',
+            footerTemplate: `
+                <div style="width: 100%; font-size: 10px; padding: 0 40px; display: flex; justify-content: space-between; color: #94a3b8; font-family: -apple-system, sans-serif;">
+                    <span><strong>SparkOn</strong> Inventory Management System</span>
+                    <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+                </div>
+            `
         });
 
-        // 3. Configure HTTP Headers
+        await browser.close();
+
+        // 6. Send to Client
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-
-        // 4. Initialize PDF (Landscape A4)
-        const doc = new PDFDocument({ 
-            margin: 40, 
-            size: 'A4', 
-            layout: 'landscape',
-            bufferPages: true 
-        });
-
-        doc.pipe(res);
-
-        // ==========================================
-        // 🎨 5. PREMIUM HEADER (FIXED SPACING)
-        // ==========================================
-        // The printable width of Landscape A4 with 40px margins is 761.89
-        const printableWidth = 761.89;
-
-        // Left Side
-        doc.fontSize(26).font('Helvetica-Bold').fillColor('#0ea5e9').text('SparkOn', 40, 40);
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748b').text('INVENTORY MANAGEMENT', 40, 75);
-
-        // Right Side (Aligned to the exact right edge using 'width')
-        doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text(reportTitle, 40, 40, { align: 'right', width: printableWidth });
-        doc.fontSize(10).font('Helvetica').fillColor('#64748b').text(`Date: ${new Date().toLocaleDateString('en-IN')}`, 40, 60, { align: 'right', width: printableWidth });
-        doc.fontSize(10).font('Helvetica').fillColor('#64748b').text(`Items Listed: ${totalItems}`, 40, 75, { align: 'right', width: printableWidth });
-
-        // Divider line pushed down to Y: 105 to give breathing room
-        doc.moveTo(40, 105).lineTo(40 + printableWidth, 105).lineWidth(1).strokeColor('#e2e8f0').stroke();
-
-        // ==========================================
-        // 📊 6. THE DATA TABLE
-        // ==========================================
-        if (tableRows.length > 0) {
-            const table = {
-                headers: [
-                    { label: "SKU", width: 85 },
-                    { label: "PRODUCT DESCRIPTION", width: 230 }, // Expanded for long names
-                    { label: "CATEGORY", width: 95 },
-                    { label: "SPECIFICATIONS", width: 90 },
-                    { label: "PACKAGING", width: 70 },
-                    { label: "STATUS", width: 55 },
-                    { label: "PRICE (Rs.)", width: 80, align: 'right' }, // Fixed Rupee symbol text
-                    { label: "STOCK", width: 55, align: 'right' }
-                ],
-                rows: tableRows,
-            };
-
-            await doc.table(table, {
-                startY: 125, // 🚀 FIXED: Pushed the table 20 pixels below the divider line
-                padding: 6,
-                columnSpacing: 10,
-                divider: {
-                    header: { disabled: false, width: 2, opacity: 1, color: '#cbd5e1' }, 
-                    horizontal: { disabled: false, width: 0.5, opacity: 1, color: '#f1f5f9' },
-                },
-                prepareHeader: () => doc.font("Helvetica-Bold").fontSize(8).fillColor('#64748b'),
-                prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
-                    if (indexColumn === 7 && parseInt(row[7]) <= 10) {
-                        doc.font("Helvetica-Bold").fontSize(9).fillColor('#ef4444'); 
-                    } else {
-                        doc.font("Helvetica").fontSize(9).fillColor('#334155');
-                    }
-                }
-            });
-        } else {
-            doc.moveDown(4);
-            doc.fontSize(12).font('Helvetica').fillColor('#94a3b8').text(
-                'No products match this report criteria.', 
-                { align: 'center', width: printableWidth }
-            );
-        }
-
-        // ==========================================
-        // 📄 7. AUTO PAGE NUMBERS
-        // ==========================================
-        const pages = doc.bufferedPageRange();
-        for (let i = 0; i < pages.count; i++) {
-            doc.switchToPage(i);
-            doc.fontSize(8).font('Helvetica').fillColor('#94a3b8').text(
-                `Page ${i + 1} of ${pages.count}`,
-                40,
-                560,
-                { align: 'center', width: printableWidth }
-            );
-        }
-
-        doc.end();
+        res.end(pdfBuffer);
 
     } catch (error) {
         console.error("PDF Export Error:", error);
