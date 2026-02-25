@@ -1,27 +1,34 @@
-import prisma from "../db/db.prisam.js";
+import prisma from "../db/db.prisam.js"; // Adjust path if necessary
 import { ValidationError } from "../middlewares/errorHandler/index.js";
 
-
-
+// ==========================================
+// USER / ELECTRICIAN CONTROLLERS
+// ==========================================
 
 export const placeOrder = async (req, res, next) => {
     try {
         const userId = req.user.id;
-        const role = req.user.role; // "CUSTOMER" or "ELECTRICIAN"
-        const { address_id, payment_mode } = req.body
+        const role = req.user.role; // e.g., "customer" or "Electrician"
+        
+        // Extract all fields from the frontend payload
+        const { 
+            address_id, 
+            payment_method, 
+            gateway_txn_id, 
+            gstin, 
+            notes, 
+            emiDetails 
+        } = req.body;
 
         // 1. Validate Address
         const address = await prisma.userAddress.findUnique({
             where: { id: parseInt(address_id) }
         });
 
-
         if (!address) return next(new ValidationError("Invalid Address ID"));
 
-        // 2. Get Cart Item
-        //  We need to find the CartSession first
-
-        const cartWhere = role === "ELECTRICIAN"
+        // 2. Get Cart Items
+        const cartWhere = role === "Electrician"
             ? { electrician_id: userId }
             : { customer_id: userId };
 
@@ -29,128 +36,129 @@ export const placeOrder = async (req, res, next) => {
             where: cartWhere,
             include: {
                 cartItems: {
-                    include: {
-                        product_variant: true
-                    }
+                    include: { product_variant: true }
                 }
             }
-        })
+        });
 
         if (!cart || cart.cartItems.length === 0) {
-            return next(new ValidationError(`Your cart is empty`))
+            return next(new ValidationError(`Your cart is empty`));
         }
 
-        // 3. Start transaction (All or Noting)
-
+        // 3. Start transaction (All or Nothing)
         const orderResult = await prisma.$transaction(async (tx) => {
-
             let totalAmount = 0;
             let totalCommission = 0;
             const orderItemsData = [];
 
             // Process Each Item (Check Stock, Calculate Totals)
-
             for (const item of cart.cartItems) {
-                const { product, quantity } = item;
+                const { product_variant, quantity } = item;
 
                 // Stock Check
-
-                if (product.stock < quantity) {
-                    throw new Error(`Out of Stock: ${product.name} . Availabele : ${product.stock}`)
+                if (product_variant.stock_quantity < quantity) {
+                    throw new Error(`Out of Stock. Available: ${product_variant.stock_quantity}`);
                 }
 
-                // Calculate Finances
-                // Note : Using Number() for simple math , but for statis finance  use a library like currency.js
-                // Prisma Decimals return as object/string , so be careful 
-                const price = Number(product.price);
+                const price = Number(product_variant.price_selling);
                 const subtotal = price * quantity;
 
-                // Commission Logic (Example : 2% commission for Electricians)
-                // You can make thsi dynamic later based on product category
-
-                const commissionPerUnit = role === "Electrican" ? (price * 0.02) : 0;
-
+                // Commission Logic (Example: 2% commission for Electricians)
+                const commissionPerUnit = role === "Electrician" ? (price * 0.02) : 0;
                 const totalItemCommission = commissionPerUnit * quantity;
 
                 totalAmount += subtotal;
                 totalCommission += totalItemCommission;
 
-                //  Prepare Order Item Data 
-                orderItemsData.push(
-                    {
-                        product_id: product.id,
-                        quantity: quantity,
-                        frozen_price: price,  // Snapshot of Price
-                        frozen_commission: commissionPerUnit,  // Snapshot of commission
-                        subtotal: subtotal
-                    }
-                )
+                // Prepare Order Item Data 
+                orderItemsData.push({
+                    product_variant_id: product_variant.id,
+                    quantity: quantity,
+                    frozen_price: price, 
+                    frozen_commission: commissionPerUnit, 
+                    subtotal: subtotal
+                });
 
                 // Deduct Stock 
-                await tx.product.update({
-                    where: { id: product_id },
-                    data: { stock: { decrement: quantity } }
-                })
+                await tx.productVariant.update({
+                    where: { id: product_variant.id },
+                    data: { stock_quantity: { decrement: quantity } }
+                });
             }
 
-            // Create the Order 
-            const orderPayload = {
-                shipping_address_id: parseInt(address_id),
-                total_amount: totalAmount,
-                total_electrician_point: totalCommission, // Point = Commission
-                payment_status: "PENDING",
-                order_status: 'PROCESSING',
-
-                // Link User
-                customer_id: role === "Customer" ? userId : null,
-                electrician_id: role === "Electrician" ? userId : null,
-
-                // Create Items immediately
-
-                orderItems: {
-                    create: orderItemsData
-                }
-            };
-
+            // 4. Create the Order (Logistics Data)
             const newOrder = await tx.order.create({
-                data: orderPayload
+                data: {
+                    shipping_address_id: parseInt(address_id),
+                    total_amount: totalAmount,
+                    total_electrician_point: totalCommission, 
+                    payment_status: payment_method === "COD" ? "PENDING" : "SUCCESS",
+                    order_status: 'PROCESSING',
+
+                    // B2B & Logistics
+                    gstin: gstin || null,
+                    notes: notes || null,
+
+                    // Link User
+                    customer_id: role === "customer" ? userId : null,
+                    electrician_id: role === "Electrician" ? userId : null,
+
+                    orderItems: { create: orderItemsData }
+                }
             });
 
-            // Clear the Cart
+            // 5. Create the Payment Record (Financial Data)
+            await tx.paymentIn.create({
+                data: {
+                    order_id: newOrder.id,
+                    customer_id: userId,
+                    gateway_txn_id: gateway_txn_id || `COD-${Date.now()}`,
+                    amount: totalAmount,
+                    method: payment_method || "COD",
+                    status: payment_method === "COD" ? "PENDING" : "SUCCESS",
+                    
+                    // Add EMI details if the method is EMI
+                    emi_provider: emiDetails?.provider || null,
+                    emi_tenure: emiDetails?.tenure ? parseInt(emiDetails.tenure) : null,
+                    emi_monthly_amount: emiDetails?.monthlyAmount || 0,
+                }
+            });
 
+            // 6. Clear the Cart
             await tx.cartItem.deleteMany({
                 where: { cart_id: cart.id }
-            })
+            });
 
-            return newOrder
+            return newOrder;
+        });
 
-        })
+        res.status(200).json({ success: true, order: orderResult });
+
     } catch (error) {
-        next(error)
+        next(error);
     }
-}
-
-
+};
 
 export const getMyOrder = async (req, res, next) => {
     try {
-
         const userId = req.user.id;
         const role = req.user.role;
 
         const whereClause = role === "Electrician"
             ? { electrician_id: userId }
-            : { customer_id: userId }
+            : { customer_id: userId };
 
         const orders = await prisma.order.findMany({
             where: whereClause,
             include: {
+                paymentIns: true, // Needed to show payment method to user
                 orderItems: {
                     include: {
                         product_variant: {
                             select: {
-                                name: true,
-                                images: { take: 1 }
+                                sku: true,
+                                images: true,
+                                product: { select: { name: true } }
                             }
                         }
                     }
@@ -159,73 +167,53 @@ export const getMyOrder = async (req, res, next) => {
             orderBy: { created_at: 'desc' } // Newest First
         });
 
-        res.status(200).json({
-            success: true,
-            orders
-        })
-
+        res.status(200).json({ success: true, orders });
     } catch (error) {
-        next(error)
+        next(error);
     }
-}
-
-
+};
 
 export const getOrderDetails = async (req, res, next) => {
     try {
-
         const { id } = req.params;
         const userId = req.user.id;
         const role = req.user.role;
 
         const order = await prisma.order.findUnique({
             where: { id: parseInt(id) },
-
             include: {
-                address: true,
+                shipping_address: true,
+                paymentIns: true,
                 orderItems: {
                     include: {
-                        product: {
-                            select: {
-                                name: true,
-                                image: { take: 1 },
-                                brand: { select: { name: true } }
-                            }
+                        product_variant: {
+                            include: { product: true }
                         }
                     }
                 }
             }
         });
 
-        if (order) {
+        if (!order) {
             return next(new ValidationError(`Order not found`));
-
         }
 
-        // Security Check : Ensure user owns this order (or is Admin)
-
+        // Security Check: Ensure user owns this order (or is Admin)
         if (role !== "Admin") {
             const isOwner = (role === "Electrician" && order.electrician_id === userId) ||
-                (role === "Customer" && order.customer_id === userId)
+                            (role === "customer" && order.customer_id === userId);
 
-            if (!isOwner) return next(new ValidationError(`Access Denied`))
+            if (!isOwner) return next(new ValidationError(`Access Denied`));
         }
 
-        res.status(200).json({
-            success: true,
-            order
-        })
-
+        res.status(200).json({ success: true, order });
     } catch (error) {
-        next(error)
+        next(error);
     }
-}
-
-
+};
 
 export const cancelOrder = async (req, res, next) => {
     try {
-
         const { id } = req.params;
         const userId = req.user.id;
         const role = req.user.role;
@@ -233,35 +221,33 @@ export const cancelOrder = async (req, res, next) => {
         const order = await prisma.order.findUnique({
             where: { id: parseInt(id) },
             include: { orderItems: true }
-        })
+        });
 
-        if (!order) return next(new ValidationError(`Order not found`))
+        if (!order) return next(new ValidationError(`Order not found`));
 
         // Permission Check
-
         const isOwner = (role === "Electrician" && order.electrician_id === userId) ||
-            (role === "Customer" && order.customer_id === userId)
+                        (role === "customer" && order.customer_id === userId);
 
-        if (!isOwner) {
-            return next(new ValidationError(`Cannot cancel order that is ${order.status}`))
+        if (!isOwner || (order.order_status !== "PENDING" && order.order_status !== "PROCESSING")) {
+            return next(new ValidationError(`Cannot cancel order that is ${order.order_status}`));
         }
 
         await prisma.$transaction(async (tx) => {
-
             // Mark as Cancelled
             await tx.order.update({
                 where: { id: order.id },
                 data: {
-                    status: "CANCELLED",
+                    order_status: "CANCELLED",
                     updated_at: new Date()
                 }
             });
 
             // Restore Stock for each item
             for (const item of order.orderItems) {
-                await tx.product.update({
-                    where: { id: item.product_id }, // Assuming product_id is String in OrderItem
-                    data: { stock: { increment: item.quantity } }
+                await tx.productVariant.update({
+                    where: { id: item.product_variant_id },
+                    data: { stock_quantity: { increment: item.quantity } }
                 });
             }
         });
@@ -269,293 +255,307 @@ export const cancelOrder = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: "Order cancelled and stock restored"
-        })
-
+        });
     } catch (error) {
-        next(error)
+        next(error);
     }
-}
+};
 
+export const requestReturn = async (req, res, next) => {
+    try {
+        const { id } = req.params; 
+        const { reason } = req.body; // Can save this to a separate table later
 
+        const order = await prisma.order.findUnique({ where: { id: parseInt(id) } });
+
+        if (!order || order.order_status !== "DELIVERED") {
+            return next(new ValidationError(`Can only return delivered items`));
+        }
+
+        // Change Status to "RETURNED" (Or RETURN_REQUESTED if you add it to enum)
+        await prisma.order.update({
+            where: { id: parseInt(id) },
+            data: { order_status: "RETURNED" } 
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Return requested. Admin will review.`
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const updateOrderAddress = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { new_address_id } = req.body;
+
+        const order = await prisma.order.findUnique({ where: { id: parseInt(id) } });
+        
+        if (order.order_status !== "PROCESSING" && order.order_status !== "PENDING") {
+            return next(new ValidationError("Cannot change address after order is processed"));
+        }
+
+        const address = await prisma.userAddress.findUnique({ where: { id: parseInt(new_address_id) } });
+        if (!address) return next(new ValidationError(`Invalid Address ID`));
+
+        await prisma.order.update({
+            where: { id: parseInt(id) },
+            data: { shipping_address_id: parseInt(new_address_id) }
+        });
+
+        res.status(200).json({ success: true, message: `Shipping Address Updated` });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// ==========================================
+// ADMIN CONTROLLERS
+// ==========================================
 
 export const getAllOrderAdmin = async (req, res, next) => {
     try {
+        const { status, dateRange, page = 1 } = req.query; 
+        const limit = 10;
+        const whereClause = {};
 
-        const { status, page = 1 } = req.query; // Filter by status (e.g. ?status = PENDING)
+        // Status Filter
+        if (status && status !== 'ALL') whereClause.order_status = status;
 
-        const whereClause = {}
+        // Date Filter
+        if (dateRange && dateRange !== 'ALL') {
+            const now = new Date();
+            if (dateRange === 'TODAY') {
+                now.setHours(0, 0, 0, 0);
+                whereClause.created_at = { gte: now };
+            } else if (dateRange === '7DAYS') {
+                const lastWeek = new Date(now.setDate(now.getDate() - 7));
+                whereClause.created_at = { gte: lastWeek };
+            } else if (dateRange === 'MONTH') {
+                const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                whereClause.created_at = { gte: firstDayOfMonth };
+            }
+        }
 
-        if (status) whereClause.status = status;
+        // Count for pagination
+        const totalItems = await prisma.order.count({ where: whereClause });
 
         const orders = await prisma.order.findMany({
             where: whereClause,
-            take: 20,
-            skip: (praseInt(page) - 1) * 20,
+            take: limit,
+            skip: (parseInt(page) - 1) * limit,
             orderBy: { created_at: 'desc' },
             include: {
-                customer: { select: { name: true, mobile: true } }, // See who bought it ..
-                electrician: { select: { name: true, mobile: true } }, // See who bought it ..
-                address: true
+                customer: { select: { name: true, phone_number: true } }, 
+                electrician: { select: { name: true, phone_number: true } }, 
+                shipping_address: true,
+                paymentIns: true, // Gets Payment & EMI data
+                orderItems: {
+                    include: { product_variant: { select: { sku: true, product: { select: { name: true } } } } }
+                }
             }
         });
 
         res.status(200).json({
             success: true,
+            totalItems,
+            totalPages: Math.ceil(totalItems / limit),
+            currentPage: parseInt(page),
             orders
-        })
+        });
 
     } catch (error) {
-        next(error)
+        next(error);
     }
-}
-
-
+};
 
 export const updateOrderStatus = async (req, res, next) => {
     try {
-
         const { id } = req.params;
-        const { status } = req.body;  // "CONFIRMED", "SHIPPED", "DELIVERED"
+        const { status } = req.body;  
 
-        const validstatus = ["PENDING", "PROCESSING", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED"];
+        const validStatus = ["PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"];
 
-        if (!validstatus.includes(status)) {
-            return next(new ValidationError("Invalid Order Status"))
+        if (!validStatus.includes(status)) {
+            return next(new ValidationError("Invalid Order Status"));
         }
 
         const order = await prisma.order.update({
             where: { id: parseInt(id) },
             data: {
-                status: status,
+                order_status: status,
                 updated_at: new Date()
             }
         });
 
-        // Final Idea : If status === "DELIVERED" send SMS/Notification  here
-
         res.status(200).json({
             success: true,
-            message: `Order marked as  ${status} `,
+            message: `Order marked as ${status}`,
             order
-        })
-
-
-
+        });
     } catch (error) {
-        next(error)
+        next(error);
     }
-}
+};
 
+export const addtrackingDetails = async(req, res, next) => {
+    try { 
+        const { id } = req.params; 
+        const { courier_name, tracking_id, estimated_date } = req.body;
 
-
-export const requestReturn = async (req, res, next) => {
-    try {
-
-        const { id } = req.params; // Order ID 
-
-        const { reason } = req.body;
-
-        // 1. Check if Order is Delivered
-
-        const order = await prisma.order.findUnique({
-            where: {
-                id: praseInt(id)
-            }
-        })
-
-        if (order.status !== "DELIVERED") {
-            return next(new ValidationError(`Can only return delivered items`))
+        if(!courier_name || !tracking_id){
+            return next(new ValidationError(`Courier name and Tracking ID are required`));
         }
 
-        // Change Status to "RETURN_REQUESTED" 
-
-        await prisma.order.update({
+        const order = await prisma.order.update({
             where: { id: parseInt(id) },
-            data: { status: "RETURN_REQUESTED" }
-            // Ideally , you'd save the 'reason' in a separate Returns table
-        })
-
+            data: {
+                order_status: "SHIPPED",
+                courier_name,
+                tracking_id,
+                estimated_date: estimated_date ? new Date(estimated_date) : null,
+                updated_at: new Date() 
+            }
+        });
+        
         res.status(200).json({
             success: true,
-            message: `Return requisted . Admin will review`
-        })
+            message: `Order Shipped & Tracking Added`,
+            order
+        });
 
-    } catch (error) {
-        next(error)
+    } catch(error){
+        next(error);
     }
-}
-
-
+};
 
 export const processReturn = async (req, res, next) => {
     try {
-
         const { id } = req.params;
-        const { actions } = req.body;
+        const { action } = req.body; // "APPROVE" or "REJECT"
 
-        if (actions === "APPROVE") {
-            // Transaction : Refund Money + Restock Items
-
+        if (action === "APPROVE") {
             await prisma.$transaction(async (tx) => {
                 const order = await tx.order.findUnique({
                     where: { id: parseInt(id) },
                     include: { orderItems: true }
-                })
-                
-                //1. Restock
-                for (const item of order.orderItems) {
-                    await tx.product.update({
-                        where: { id: item.product_id },
-                        data: { stock: { increment: item.quantity } }
-                    })
-                }
-                // 2. Makr as Returned
-
-                await tx.order.update({
-                    where:{id:praseInt(id)},
-                    data : { status : "RETURNED"}
                 });
-
+                
+                // Restock Items
+                for (const item of order.orderItems) {
+                    await tx.productVariant.update({
+                        where: { id: item.product_variant_id },
+                        data: { stock_quantity: { increment: item.quantity } }
+                    });
+                }
+                
+                // Mark as Returned
+                await tx.order.update({
+                    where: { id: parseInt(id) },
+                    data: { order_status: "RETURNED" }
+                });
             });
 
-            res.status(200).json({
-                success:true,
-                message:`Return Approved & Stock Updated`
-            })
+            res.status(200).json({ success: true, message: `Return Approved & Stock Updated` });
 
-
-        }else {
-            // Reject Return
-
+        } else {
+            // Reject Return (Revert to Delivered)
             await prisma.order.update({
-                where : {id : parseInt(id)},
-                data: { status : "DELIVERED"} // REVERT STATUS
+                where: { id: parseInt(id) },
+                data: { order_status: "DELIVERED" } 
             }); 
 
-            res.status(200).json({
-                success :true ,
-                message : 'Return Rejected'
-            })
+            res.status(200).json({ success: true, message: 'Return Rejected' });
         }
-
     } catch (error) {
-         
-        next(error)
+        next(error);
     }
-}
+};
 
+export const markOrderAsPaid = async (req, res, next) => {
+    try {
+        const { id } = req.params;
 
+        const order = await prisma.order.findUnique({
+            where: { id: parseInt(id) },
+            include: { paymentIns: true }
+        });
 
-export const addtrackingDetails = async(req,res , next) => {
-    try{ 
+        if (!order) return next(new ValidationError("Order not found"));
+        if (order.payment_status === "SUCCESS") return next(new ValidationError("Order is already paid"));
 
-        const  { id} = req.error ; 
-        const  { courier_name , tracking_id , estimated_date} = req.body ;
+        await prisma.$transaction(async (tx) => {
+            // Update Order Status
+            await tx.order.update({
+                where: { id: parseInt(id) },
+                data: {
+                    payment_status: "SUCCESS",
+                    total_paid: order.total_amount,
+                    updated_at: new Date()
+                }
+            });
 
-
-        // Validation
-        if(!courier_name || !tracking_id){
-            return next(new ValidationError(`Courier name and Tracking ID are required`))
-        }
-
-        const order = await prisma.order.update({
-            where : { id: parseInt(id)},
-            data : {
-                status : "SHIPPED",
-                courier_name ,
-                tracking_id ,
-                estimated_date : estimated_date ? new Date(estimated_date) : undefined,
-                updated_at : new Date() 
+            // Find pending COD payment
+            const pendingPayment = order.paymentIns.find(p => p.status === "PENDING" && p.method === "COD");
+            
+            if (pendingPayment) {
+                await tx.paymentIn.update({
+                    where: { id: pendingPayment.id },
+                    data: { status: "SUCCESS", paid_at: new Date() }
+                });
+            } else {
+                await tx.paymentIn.create({
+                    data: {
+                        order_id: order.id,
+                        customer_id: order.customer_id || order.electrician_id,
+                        gateway_txn_id: `COD-MANUAL-${Date.now()}`,
+                        amount: order.total_amount,
+                        method: "COD",
+                        status: "SUCCESS"
+                    }
+                });
             }
         });
 
-        // Pro Tip :  Trigger an SMS/ Email to user here: 
-        // sendSms(order.customer.phone , `Your Order is shiped via ${courier_name} , ${tracking_id}`)
-        
-        res.status(200).jons({
-            success:true,
-            message:`Order Shipped & Tracking Added`,
-            order
-        })
-
-    }catch(error){
-        next(error)
+        res.status(200).json({ success: true, message: "Order marked as Paid via COD" });
+    } catch (error) {
+        next(error);
     }
-}
+};
 
-// Allow for : Admin (Always) or User(Only if status is Pending)
-
-export const updateOrderAddress = async (req,res,next) =>{
+export const getOrderStats = async(req, res, next) => {
     try {
-        const { id } = req.params;
-        const { new_address_id} = req.body;
-        const role = req.user.role ;
-        const order = await prisma.order.findUnique({
-            where : {
-                id: parseInt(id)
-            }
-        })
-        // Check Permission
-        if(order.status !== "PENDING" && order.status !== "PROCESSING"){
-            return next(new ValidationError("Cannot change address after order is processed"))
-        }
-        // Validate New Address
-        const address = await prisma.userAddress.findUnique({
-            where : {
-                id:praseInt(new_address_id)
-            }
-        })
-        if(!address){
-            return next(new ValidationError(`Invalid Address ID`))
-        }
-        // Update the Prisma Database
-        await prisma.order.update({
-            where  :{ id: parseInt(id)},
-            data:{shipping_address_id : praseInt(new_address_id)}
-        })
-        res.status(200).json({
-            success:true,
-            message: `Shipping Address Updated`
-        })
+        // 1. Calculate Total Revenue
+        const totalRevenue = await prisma.order.aggregate({
+            _sum: { total_paid: true }
+        });
 
-    }catch(error){
-        next(error)
-    }
-}
-
-
-export const getOrderStats = async(req,res,next) =>{
-    try{
-        // Calculate Total Revenue (All Time)
-        // Count Order by Status 
+        // 2. Count Order by Status 
         const statusCounts = await prisma.order.groupBy({
-            by:['status'],
-            _count:{id:true}
-        })
+            by: ['order_status'],
+            _count: { id: true }
+        });
 
-        // Get Today's Orders
-
+        // 3. Get Today's Orders
         const todayStart = new Date();
-        todayStart.setHours(0,0,0,0)
+        todayStart.setHours(0,0,0,0);
 
-        const todaysOrder = await prisma.order.count({
-            where : {
-                created_at : {
-                    gte:todayStart
-                }
-            }
-        })
+        const todaysOrderCount = await prisma.order.count({
+            where: { created_at: { gte: todayStart } }
+        });
 
         res.status(200).json({
-            success:true,
-            stats:{
-                totalRevenue : totalRevenue._sum.total_amount || 0,
-                orderToday : todaysOrder ,
-                breakdown : statusCounts // Returns [{status: "Shipped" , _count : 5}]
+            success: true,
+            stats: {
+                totalRevenue: totalRevenue._sum.total_paid || 0,
+                ordersToday: todaysOrderCount,
+                breakdown: statusCounts 
             }
-        })
-
-    }catch(error){
-         next(Error)
+        });
+    } catch(error) {
+         next(error);
     }
-}
+};

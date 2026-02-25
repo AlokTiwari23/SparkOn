@@ -95,19 +95,21 @@ model Category {
 }
 
 model Banner {
-  id       String  @id @default(uuid())
-  imageUrl String  
-  publicId String  
+  id           String      @id @default(uuid())
+  imageUrl     String      
+  publicId     String      
+  displayType  DisplayType @default(SLIDER)
+  title        String?     
+  isActive     Boolean     @default(true)
 
-  title    String? 
-  isActive Boolean @default(true)
+  // Routing fields for the mobile app
+  targetScreen String      
+  targetId     String?     
 
-  targetScreen String 
-  targetId     String? 
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt // Highly recommended for tracking edits
 
-  createdAt DateTime @default(now())
-
-  @@map("banner")
+  @@map("banners") // Plural table names are standard convention in Postgres
 }
 
 model Product {
@@ -224,6 +226,10 @@ model PaymentIn {
   method         String        @db.VarChar(50)
   status         PaymentStatus
   paid_at        DateTime      @default(now())
+  // EMI Specific Details
+  emi_provider       String?   @db.VarChar(100)
+  emi_tenure         Int?
+  emi_monthly_amount Decimal?  @default(0)
 
   customer UserCustomer @relation(fields: [customer_id], references: [id])
   order    Order        @relation(fields: [order_id], references: [id])
@@ -341,10 +347,14 @@ model Notification {
   title   String @db.VarChar(100) 
   message String @db.VarChar(255) 
   type    String @default("INFO") 
+  image_url      String?   // To show the offer image in the bell menu
+  scheduled_for  DateTime?
+  valid_from     DateTime? @default(now()) // When the offer starts
+  valid_until    DateTime? // When the offer ends and disappears
 
   is_read    Boolean  @default(false)
   created_at DateTime @default(now())
-
+  displayType  String   @default("SLIDER") // "SLIDER" or "POPUP"
   customer    UserCustomer?        @relation(fields: [customer_id], references: [id])
   electrician ElectricianCustomer? @relation(fields: [electrician_id], references: [id])
 
@@ -352,6 +362,14 @@ model Notification {
 }
 
 // --- ENUMS ---
+
+
+
+enum DisplayType {
+  SLIDER
+  POPUP
+}
+
 
 enum KycStatus {
   PENDING

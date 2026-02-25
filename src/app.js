@@ -15,11 +15,12 @@ import walletrouter from './routes/wallet.router.js'
 import payoutrouter from './routes/payout.router.js'
 import paymentrouter from './routes/payment.router.js'
 import orderrouter from './routes/order.router.js'
-import notificationrouter from './routes/notification.router.js'
+import promotionRouter from './routes/notification.router.js'
 import invoicerouter from './routes/invoice.router.js'
 import dashboardrouter from './routes/dashborad.router.js'
 import cartrouter from './routes/cart.router.js'
 import addressrouter from './routes/address.router.js'
+import electricianRouter from "./routes/electrician.router.js";
 // You must include 'with { type: "json" }'
 
 const app = express()
@@ -66,11 +67,12 @@ app.use("/api/wallet" , apiLimiter , walletrouter)  // Done Postman
 app.use("/api/payout" , apiLimiter , payoutrouter)   // Done Postman
 app.use("/api/payment" , apiLimiter , paymentrouter)  // Done Postman
 app.use("/api/order" , apiLimiter , orderrouter)    //Done Postman
-app.use("/api/notification" , apiLimiter , notificationrouter)  // Done Postman
+app.use("/api/admin" , apiLimiter , promotionRouter)  // Done Postman
 app.use("/api/invoice" , apiLimiter , invoicerouter)   // Done Postman
 app.use("/api/dashboard" , apiLimiter , dashboardrouter)  //Done Postman
 app.use("/api/address" ,apiLimiter , addressrouter)   //Done Postman
 app.use("/api/cart" , apiLimiter ,cartrouter)
+app.use("/api/electrician" ,apiLimiter , electricianRouter)
 
 
 app.use(errorMiddleware)
