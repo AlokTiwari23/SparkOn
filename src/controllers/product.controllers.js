@@ -13,9 +13,9 @@ export const createProductVariant = async (req, res, next) => {
     let uploadedImagesData = [];
 
     try {
-        const { 
-            product_id, color, size_rating, sku, 
-            price_selling, price_mrp, stock_quantity, boxpacking, moq 
+        const {
+            product_id, color, size_rating, sku,
+            price_selling, price_mrp, stock_quantity, boxpacking, moq
         } = req.body;
 
         const imagesFiles = req.files;
@@ -41,7 +41,7 @@ export const createProductVariant = async (req, res, next) => {
         // 3. Third-Party Upload (Cloudinary)
         const uploadPromises = imagesFiles.map(file => uploadOnCloudinary(file.path));
         const uploadResult = await Promise.all(uploadPromises);
-        
+
         uploadedImagesData = uploadResult.filter(img => img != null);
 
         if (uploadedImagesData.length === 0) {
@@ -54,14 +54,14 @@ export const createProductVariant = async (req, res, next) => {
         const newVariant = await prisma.productVariant.create({
             data: {
                 product_id: parseInt(product_id), // Link to base product
-                sku: sku || `VAR-${Date.now()}`,         
+                sku: sku || `VAR-${Date.now()}`,
                 color: color || null,
                 size_rating: size_rating || null,
-                price_selling: parseFloat(price_selling),        
-                price_mrp: price_mrp ? parseFloat(price_mrp) : parseFloat(price_selling), 
-                stock_quantity: parseInt(stock_quantity),         
-                boxpacking: parseInt(boxpacking),        
-                moq: moq ? parseInt(moq) : 1,            
+                price_selling: parseFloat(price_selling),
+                price_mrp: price_mrp ? parseFloat(price_mrp) : parseFloat(price_selling),
+                stock_quantity: parseInt(stock_quantity),
+                boxpacking: parseInt(boxpacking),
+                moq: moq ? parseInt(moq) : 1,
                 images: imagesUrls
             }
         });
@@ -80,7 +80,7 @@ export const createProductVariant = async (req, res, next) => {
             const deletePromises = uploadedImagesData.map(img => deleteFromCloudinary(img.public_id));
             await Promise.all(deletePromises);
         }
-        
+
         next(error);
     }
 }
@@ -93,12 +93,12 @@ export const createProductVariant = async (req, res, next) => {
 export const getNewArrival = async (req, res, next) => {
     try {
         const products = await prisma.product.findMany({
-            where: { isActive: true },
-            orderBy: { createdAt: 'desc' },
+            where: { is_active: true },
+            orderBy: { id: 'desc' },
             take: 10,
             include: {
                 // Return basic details for the card
-                images: { take: 1 },
+                variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 },
                 brand: { select: { name: true } }
             }
         })
@@ -119,15 +119,20 @@ export const getTredingNow = async (req, res, next) => {
 
         const products = await prisma.product.findMany({
             where: {
-                isActive: true,
-                isFeatured: true  // You can toggle this flag in Admin to make itrms trending
+                is_active: true,
+                is_featured: true  // You can toggle this flag in Admin to make itrms trending
             },
             take: 10,
             include: {
-                images: { take: 1 },
+                variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 },
                 brand: { select: { name: true } }
             }
-        })
+        });
+
+        res.status(200).json({
+            success: true,
+            products
+        });
 
     } catch (error) {
         next(error)
@@ -173,12 +178,12 @@ export const getSeasonPicks = async (req, res, next) => {
 
         const products = await prisma.product.findMany({
             where: {
-                isActive: true,
+                is_active: true,
                 tags: { has: "Seasonal" } // prisma filter for Array
             },
             take: 10,
             include: {
-                images: { take: 1 }
+                variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 }
             }
         });
         res.status(200).json({
@@ -477,7 +482,7 @@ import { v2 as cloudinary } from 'cloudinary'; // Make sure you import cloudinar
 
 export const updateProduct = async (req, res, next) => {
     // 🚀 NEW: Keep track of uploaded image IDs for rollback
-    let uploadedCloudinaryIds = []; 
+    let uploadedCloudinaryIds = [];
 
     try {
         const { id } = req.params;
@@ -495,16 +500,16 @@ export const updateProduct = async (req, res, next) => {
         // ==========================================
         for (let i = 0; i < parsedVariants.length; i++) {
             const variantFiles = allFiles.filter(f => f.fieldname === `variant_${i}_images`);
-            
+
             if (variantFiles.length > 0) {
                 const vUploadPromises = variantFiles.map(f => uploadOnCloudinary(f.path));
                 const vResults = await Promise.all(vUploadPromises);
-                
+
                 const successfulUploads = vResults.filter(img => img != null);
-                
+
                 // Track the public_ids so we can delete them if the DB fails later
                 successfulUploads.forEach(img => {
-                    if(img.public_id) uploadedCloudinaryIds.push(img.public_id);
+                    if (img.public_id) uploadedCloudinaryIds.push(img.public_id);
                 });
 
                 // Temporarily attach the new URLs to the parsed variant object
@@ -518,14 +523,14 @@ export const updateProduct = async (req, res, next) => {
         // 💾 2. DATABASE TRANSACTION
         // ==========================================
         const result = await prisma.$transaction(async (tx) => {
-            
+
             // A. Update Parent Product
             const updatedProduct = await tx.product.update({
                 where: { id: parseInt(id) },
                 data: {
-                    name, 
-                    description, 
-                    tags: parsedTags, 
+                    name,
+                    description,
+                    tags: parsedTags,
                     categoryId: categoryId ? parseInt(categoryId) : undefined,
                     brandId: brandId ? parseInt(brandId) : undefined
                 }
@@ -534,11 +539,11 @@ export const updateProduct = async (req, res, next) => {
             // B. Update Every Variant
             for (let i = 0; i < parsedVariants.length; i++) {
                 const v = parsedVariants[i];
-                if (!v.id) continue; 
+                if (!v.id) continue;
 
                 // Combine old images kept by the user + the newly uploaded ones we processed above
                 const variantFinalImages = [
-                    ...(v.images_to_keep || []), 
+                    ...(v.images_to_keep || []),
                     ...v.newly_uploaded_urls
                 ];
 
@@ -551,7 +556,7 @@ export const updateProduct = async (req, res, next) => {
                         stock_quantity: parseInt(v.stock_quantity),
                         price_mrp: parseFloat(v.price_mrp),
                         price_selling: parseFloat(v.price_selling),
-                        images: variantFinalImages 
+                        images: variantFinalImages
                     }
                 });
             }
@@ -569,7 +574,7 @@ export const updateProduct = async (req, res, next) => {
         // ==========================================
         if (uploadedCloudinaryIds.length > 0) {
             console.log(`Rolling back ${uploadedCloudinaryIds.length} images from Cloudinary due to DB error...`);
-            
+
             for (const publicId of uploadedCloudinaryIds) {
                 try {
                     // Destroy the image on Cloudinary
@@ -1034,6 +1039,28 @@ export const getDeals = async (req, res, next) => {
     } catch (error) { next(error); }
 };
 
+// 🏷️ GET WHOLESALE DEALS (Bulk Pricing)
+export const getWholesaleDeals = async (req, res, next) => {
+    try {
+        // Find products where MOQ > 1 or have 'Wholesale' tag
+        const products = await prisma.product.findMany({
+            where: {
+                isActive: true,
+                variants: {
+                    some: { moq: { gt: 1 } }
+                }
+            },
+            take: 12,
+            include: {
+                images: { take: 1 },
+                variants: true
+            }
+        });
+
+        res.status(200).json({ success: true, products });
+    } catch (error) { next(error); }
+};
+
 // 🔄 TOGGLE PRODUCT STATUS (Active <-> Inactive)
 export const toggleProductStatus = async (req, res, next) => {
     try {
@@ -1054,7 +1081,7 @@ export const toggleProductStatus = async (req, res, next) => {
                 where: { id: productId },
                 data: { is_active: newStatus }
             }),
-            
+
             // Action B: Update all variants that belong to this product
             prisma.productVariant.updateMany({
                 where: { product_id: productId }, // Matches the foreign key in your schema
@@ -1067,9 +1094,9 @@ export const toggleProductStatus = async (req, res, next) => {
             message: `Product and ${updatedVariants.count} variants are now ${updatedProduct.is_active ? 'Active' : 'Inactive'}`,
             is_active: updatedProduct.is_active
         });
-        
-    } catch (error) { 
-        next(error); 
+
+    } catch (error) {
+        next(error);
     }
 };
 
@@ -1118,12 +1145,12 @@ export const deleteBulkRule = async (req, res, next) => {
 export const toggleVariantStatus = async (req, res, next) => {
     try {
         const { variantId } = req.params;
-        
+
         // Find the current variant to get its existing status
-        const variant = await prisma.productVariant.findUnique({ 
-            where: { id: parseInt(variantId) } 
+        const variant = await prisma.productVariant.findUnique({
+            where: { id: parseInt(variantId) }
         });
-        
+
         if (!variant) return res.status(404).json({ message: "Variant not found" });
 
         // Flip the boolean value
@@ -1132,10 +1159,10 @@ export const toggleVariantStatus = async (req, res, next) => {
             data: { is_active: !variant.is_active }
         });
 
-        res.status(200).json({ 
-            success: true, 
+        res.status(200).json({
+            success: true,
             message: `Variant is now ${updatedVariant.is_active ? 'Active' : 'Inactive'}`,
-            is_active: updatedVariant.is_active 
+            is_active: updatedVariant.is_active
         });
 
     } catch (error) {
@@ -1153,9 +1180,9 @@ export const updateGlobalProductPrice = async (req, res, next) => {
         const { price_selling, price_mrp } = req.body;
 
         if (!price_selling) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Selling price is required for global update" 
+            return res.status(400).json({
+                success: false,
+                message: "Selling price is required for global update"
             });
         }
 
@@ -1449,7 +1476,7 @@ export const exportInventoryPDF = async (req, res) => {
         // 5. Generate PDF using Puppeteer
         const browser = await puppeteer.launch({ headless: 'new' });
         const page = await browser.newPage();
-        
+
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
 
         const pdfBuffer = await page.pdf({

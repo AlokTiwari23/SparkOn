@@ -3,7 +3,7 @@ import { ValidationError } from "../middlewares/errorHandler/index.js";
 import redis from "../db/redis.js";
 import prisma from "../db/db.prisam.js"
 import sendotp from "./send-phone-otp.js";
-import { create } from "domain";
+
 
 
 
@@ -55,7 +55,7 @@ const trackOtpRequests = async (phone_number) => {
     if (count === 1) promises.push(redis.expire(otpRequestKey, 3600))
     // it will going to delete the key pair after the first otp 
     // send is 1 Hour..
-    if (count>3) {
+    if (count > 3) {
         promises.push(redis.set(spamlockKey, "locked", "EX", 3600))
 
     }
@@ -114,7 +114,7 @@ export const otprequest = async (phone_number) => {
 
 
         // Add to BullMQ ( The heavy lifting happens later)
-        await sendotp(phone_number , otp)
+        await sendotp(phone_number, otp)
 
 
 
@@ -132,41 +132,41 @@ export const otprequest = async (phone_number) => {
 }
 
 export const savedata = async (name, phone_number, role) => {
-    try {   
+    try {
         let user = null;
 
         // Ensure role matches exactly (Case Sensitive!)
         if (role === "Consumer") {
-             user = await prisma.UserCustomer.upsert({
-                where :{phone_number},
+            user = await prisma.UserCustomer.upsert({
+                where: { phone_number },
                 // If there Creating New User
-                create:{
+                create: {
                     name,
                     phone_number,
-                    isActive:true // Default
+                    is_active: true // Default
                 },
                 // If updating  (Reactivating old user):
 
-                update:{
+                update: {
                     name,  // Update name if they changed it
-                    isActive:true, //WAKE UP THE USER
-                    deletedAt:null  // remove the deletion date
+                    is_active: true, //WAKE UP THE USER
+
                 }
 
             });
         }
         else if (role === "Electrician") {
             user = await prisma.ElectricianCustomer.upsert({
-                where:{phone_number},
-                create:{
+                where: { phone_number },
+                create: {
                     name,
                     phone_number,
                     referral_code: generateReferralCode(name, phone_number)
                 },
-                update:{
+                update: {
                     name,  // Update name if they changed it
-                    isActive:true, //WAKE UP THE USER
-                    deletedAt:null  // remove the deletion date
+                    is_active: true, //WAKE UP THE USER
+
                 }
 
             });
@@ -176,7 +176,7 @@ export const savedata = async (name, phone_number, role) => {
         }
 
         // Return the user object (make sure to attach the role for consistency)
-        return { ...user, role }; 
+        return { ...user, role };
 
     } catch (error) {
         if (error.code === 'P2002') {

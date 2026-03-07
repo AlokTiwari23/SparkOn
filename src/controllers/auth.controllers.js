@@ -3,7 +3,7 @@ import prisma from "../db/db.prisam.js"
 import bcrypt from "bcryptjs"
 import { ValidationError } from "../middlewares/errorHandler/index.js"
 import redis from "../db/redis.js"
-import jwt, { decode } from "jsonwebtoken"
+import jwt from "jsonwebtoken"
 import { setCookie } from "../utils/setCookie.js"
 import { success } from "zod"
 
@@ -51,8 +51,9 @@ export const registerUser = async (req, res, next) => {
 
 
         if (existingUser) {
-            if(existingUser.isActive === true){
-                return next(new ValidationError("User already exists with this phone number"))    }
+            if (existingUser.is_active === true) {
+                return next(new ValidationError("User already exists with this phone number"))
+            }
         }
 
         //  set the role and phone_number in the redis data base 
@@ -131,15 +132,12 @@ export const verfiyuser = async (req, res, next) => {
             { expiresIn: "90d" }
         );
 
-        // 5. Set Cookies
-        // res.cookie('accessToken', accessToken, { httpOnly: true, secure: true, sameSite: 'None' });
-        res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true, sameSite: 'None', maxAge: 90 * 24 * 60 * 60 * 1000 });
-
         // 6. Send Response
         res.status(200).json({
             success: true,
             message: "User registered successfully",
             accessToken, // Frontend needs this!
+            refreshToken,
             user: {
                 id: user.id,
                 name: user.name,
@@ -160,7 +158,7 @@ export const loginuser = async (req, res, next) => {
         const { phone_number } = req.body
 
         if (!phone_number) {
-            next(new ValidationError("All fields are required"))
+            return next(new ValidationError("All fields are required"))
         }
         // Run both queries at the exact same time
         const [customerUser, electricianUser] = await Promise.all([
@@ -205,17 +203,17 @@ export const verifyloginotp = async (req, res, next) => {
     try {
         const { phone_number, otp } = req.body
         if (!phone_number || !otp) {
-            next(new ValidationError("All fields are required"))
+            return next(new ValidationError("All fields are required"))
         }
 
         const saved_otp = await redis.get(`otp:${phone_number}`)
 
         if (!saved_otp) {
-            next(new ValidationError(`Please request a new OTP`))
+            return next(new ValidationError(`Please request a new OTP`))
         }
 
         if (otp !== saved_otp) {
-            next(new ValidationError(`Wrong OTP`))
+            return next(new ValidationError(`Wrong OTP`))
         }
 
         // 🚀 FIX 1: Capture the variables!
@@ -239,7 +237,7 @@ export const verifyloginotp = async (req, res, next) => {
 
 
         if (!user) {
-            next(new ValidationError("User not found"))
+            return next(new ValidationError("User not found"))
         }
 
 
@@ -260,7 +258,7 @@ export const verifyloginotp = async (req, res, next) => {
         // store the refresh and access token in an httpOnly secure cookies
 
         // setCookie(res, "accessToken", accessToken)
-        setCookie(res, "refreshToken", refreshToken)
+        // setCookie(res, "refreshToken", refreshToken)
 
         res.status(200).json({
             success: true,
@@ -271,7 +269,8 @@ export const verifyloginotp = async (req, res, next) => {
                 role: user.role
             },
 
-            accessToken
+            accessToken,
+            refreshToken
 
         })
 
@@ -389,26 +388,22 @@ export const adminlogout = async (req, res, next) => {
 
 export const refreshUserToken = async (req, res, next) => {
     try {
-        const cookies = req.cookies;
+        // 🚨 FIX 1: Check req.body (for mobile) AND req.cookies (for web)
+        const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
 
-        if (!cookies?.refreshToken) {
+        if (!refreshToken) {
             return res.status(401).json({
-                'message': `There is not the Token`
+                message: `There is no Refresh Token`
             });
         }
 
-        const refreshToken = cookies.refreshToken
-
-        // refresh token 
-
+        // Verify the token
         jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, async (error, decoded) => {
             if (error) {
-                return res.status(403).json({ message: `Invalid Token` })
+                return res.status(403).json({ message: `Invalid Token` });
             }
 
-
-
-            //    / 3. Create clean payload
+            // 3. Create clean payload
             const payload = {
                 id: decoded.id,
                 name: decoded.name,
@@ -426,37 +421,21 @@ export const refreshUserToken = async (req, res, next) => {
             const newRefreshToken = jwt.sign(
                 payload,
                 process.env.REFRESH_TOKEN_SECRET,
-                { expiresIn: '7d' }
+                { expiresIn: '90d' } // Usually 90d for refresh tokens
             );
 
-            // 5. UPDATE COOKIES (The "Double Update" Strategy)
 
-            // Update Refresh Token (So it rotates)
-            res.cookie('refreshToken', newRefreshToken, {
-                httpOnly: true,
-                secure: true,
-                sameSite: 'None',
-                maxAge: 90 * 24 * 60 * 60 * 1000 // 7 days
+
+            // 6. 🚨 FIX 2: Send BOTH tokens back to React Native!
+            res.json({
+                accessToken: newAccessToken,
+                refreshToken: newRefreshToken // Your mobile app needs this to update Secure Store!
             });
-
-            // ⬇️ THIS IS THE PART YOU ASKED ABOUT ⬇️
-            // Update Access Token Cookie (So middleware sees the new one too!)
-            // res.cookie('accessToken', newAccessToken, {
-            //     httpOnly: true,
-            //     secure: true,
-            //     sameSite: 'None',
-            //     maxAge: 15 * 60 * 1000 // 15 minutes
-            // });
-            // ⬆️ END OF NEW PART ⬆️
-
-            // 6. Send response to frontend
-            res.json({ accessToken: newAccessToken });
         })
 
     } catch (error) {
         res.status(500).json({ message: "Server Error" });
     }
-
 }
 
 export const refreshAdminToken = async (req, res, next) => {
@@ -502,7 +481,7 @@ export const refreshAdminToken = async (req, res, next) => {
             });
 
 
-            res.json({ success :true , accessToken: newAccessToken , admin : payload });
+            res.json({ success: true, accessToken: newAccessToken, admin: payload });
         })
 
 
@@ -603,12 +582,12 @@ export const deleteUseAccount = async (req, res, next) => {
         if (role === 'Consumer') {
             await prisma.UserCustomer.update({
                 where: { id: userId },
-                data: { isActive: false, deletedAt: new Date() } // Ensure schema has these fields
+                data: { is_active: false, deletedAt: new Date() } // Ensure schema has these fields
             })
         } else if (role === 'Electrician') {
             await prisma.ElectricianCustomer.update({
                 where: { id: userId },
-                data: { isActive: false, deletedAt: new Date() }
+                data: { is_active: false, deletedAt: new Date() }
             });
         }
         res.clearCookie('refreshToken', { httpOnly: true, secure: true, sameSite: 'None' });

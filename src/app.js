@@ -26,23 +26,24 @@ import electricianRouter from "./routes/electrician.router.js";
 const app = express()
 
 app.use(cors({
-    origin: ["http://localhost:8000","http://localhost:5173","http://10.213.115.12:5173"],
+    origin: ["http://localhost:8000", "http://localhost:5173", "http://10.213.115.12:5173", "http://10.213.115.12:8000", "http://localhost:8081"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-     methods : ["GET","POST","PUT","PATCH","DELETE"]
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
 }))
 
 app.use(morgan("dev"))
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(cookieParser());
+// app.use(express.json())
 
 const authlimiter = ratelimit({
-    windowMs:15*60*1000,  // 15 Minutes
-    max: 20 ,// maximum Only 20 attempts per 15 mins
-    message:{message:"Too many login Attempts . Please try again later"},
-    standardHeaders:true,
-    legacyHeaders:false
+    windowMs: 15 * 60 * 1000,  // 15 Minutes
+    max: 20,// maximum Only 20 attempts per 15 mins
+    message: { message: "Too many login Attempts . Please try again later" },
+    standardHeaders: true,
+    legacyHeaders: false
 
 })
 
@@ -59,20 +60,20 @@ const apiLimiter = ratelimit({
 
 //Rooutes
 
-app.use("/api/auth",authlimiter, authrouter)  // Done Postman
-app.use("/api/product",apiLimiter , productrouter)   // Done Postman
-app.use("/api/review" ,apiLimiter , reviewrouter)  // Done Postman
-app.use("/api/user" , apiLimiter , userrouter)     //Done Postman
-app.use("/api/wallet" , apiLimiter , walletrouter)  // Done Postman
-app.use("/api/payout" , apiLimiter , payoutrouter)   // Done Postman
-app.use("/api/payment" , apiLimiter , paymentrouter)  // Done Postman
-app.use("/api/order" , apiLimiter , orderrouter)    //Done Postman
-app.use("/api/admin" , apiLimiter , promotionRouter)  // Done Postman
-app.use("/api/invoice" , apiLimiter , invoicerouter)   // Done Postman
-app.use("/api/dashboard" , apiLimiter , dashboardrouter)  //Done Postman
-app.use("/api/address" ,apiLimiter , addressrouter)   //Done Postman
-app.use("/api/cart" , apiLimiter ,cartrouter)
-app.use("/api/electrician" ,apiLimiter , electricianRouter)
+app.use("/api/auth", authlimiter, authrouter)  // Done Postman
+app.use("/api/product", apiLimiter, productrouter)   // Done Postman
+app.use("/api/review", apiLimiter, reviewrouter)  // Done Postman
+app.use("/api/user", apiLimiter, userrouter)     //Done Postman
+app.use("/api/wallet", apiLimiter, walletrouter)  // Done Postman
+app.use("/api/payout", apiLimiter, payoutrouter)   // Done Postman
+app.use("/api/payment", apiLimiter, paymentrouter)  // Done Postman
+app.use("/api/order", apiLimiter, orderrouter)    //Done Postman
+app.use("/api/admin", apiLimiter, promotionRouter)  // Done Postman
+app.use("/api/invoice", apiLimiter, invoicerouter)   // Done Postman
+app.use("/api/dashboard", apiLimiter, dashboardrouter)  //Done Postman
+app.use("/api/address", apiLimiter, addressrouter)   //Done Postman
+app.use("/api/cart", apiLimiter, cartrouter)
+app.use("/api/electrician", apiLimiter, electricianRouter)
 
 
 app.use(errorMiddleware)
