@@ -139,6 +139,65 @@ export const getTredingNow = async (req, res, next) => {
     }
 }
 
+// 📦 GET DASHBOARD DATA (Aggregated endpoint to reduce client API calls)
+export const getDashboardData = async (req, res, next) => {
+    try {
+        const [categories, brands, trending, seasonal, wholesale] = await Promise.all([
+            // Limit to Top 12 Categories
+            prisma.category.findMany({
+                where: { is_active: true },
+                take: 12,
+                select: { id: true, name: true }
+            }),
+
+            // Limit to Top 8 Brands along with their top products
+            prisma.brand.findMany({
+                where: { is_active: true },
+                take: 8,
+                select: {
+                    id: true,
+                    name: true,
+                    image_url: true,
+                    products: {
+                        where: { is_active: true },
+                        take: 10,
+                        include: {
+                            variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 },
+                            brand: { select: { name: true } }
+                        }
+                    }
+                }
+            }),
+
+            // Trending Products
+            prisma.product.findMany({
+                where: { is_active: true, is_featured: true },
+                take: 10,
+                include: { variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 }, brand: { select: { name: true } } }
+            }),
+
+            // Seasonal Picks
+            prisma.product.findMany({
+                where: { is_active: true, tags: { has: "Seasonal" } },
+                take: 10,
+                include: { variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 }, brand: { select: { name: true } } }
+            }),
+
+            // Wholesale Deals
+            prisma.product.findMany({
+                where: { is_active: true, variants: { some: { moq: { gt: 1 } } } },
+                take: 10,
+                include: { variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 }, brand: { select: { name: true } } }
+            })
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: { cats: categories, brands, trending, seasonal, wholesale }
+        });
+    } catch (error) { next(error); }
+};
+
 
 export const updateProductMarketingTags = async (req, res, next) => {
 
@@ -1045,15 +1104,15 @@ export const getWholesaleDeals = async (req, res, next) => {
         // Find products where MOQ > 1 or have 'Wholesale' tag
         const products = await prisma.product.findMany({
             where: {
-                isActive: true,
+                is_active: true,
                 variants: {
                     some: { moq: { gt: 1 } }
                 }
             },
             take: 12,
             include: {
-                images: { take: 1 },
-                variants: true
+                variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 },
+                brand: { select: { name: true } }
             }
         });
 

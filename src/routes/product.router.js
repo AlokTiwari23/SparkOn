@@ -1,6 +1,6 @@
 import express from "express"
 import { verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
-import { createBrand, createCategory, updateGlobalProductPrice, exportInventoryPDF, getAllAdminProduct, createProduct, toggleVariantStatus, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getWholesaleDeals, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock, createProductVariant } from "../controllers/product.controllers.js"
+import { createBrand, createCategory, updateGlobalProductPrice, exportInventoryPDF, getAllAdminProduct, createProduct, toggleVariantStatus, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getWholesaleDeals, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock, createProductVariant, getDashboardData } from "../controllers/product.controllers.js"
 import { isAdmin } from "../middlewares/authentication/isAuthorizedRoles.js"
 import { upload } from "../utils/multer.js"
 const productrouter = express.Router()
@@ -10,6 +10,7 @@ const productrouter = express.Router()
 //  ---- Public : Home Screen & Marketing ---
 
 productrouter.get('/home/trending', getTredingNow) // Based on sales/ views
+productrouter.get('/home/dashboard', getDashboardData) // Aggregated calls for the mobile homepage
 productrouter.get('/home/seasonal', getSeasonPicks)  // Admin -curated seasonal gear
 productrouter.get('/home/deals', getDeals)  // High discount items
 productrouter.get('/home/wholesale', getWholesaleDeals) // Bulk pricing deals

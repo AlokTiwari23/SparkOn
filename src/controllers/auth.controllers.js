@@ -495,8 +495,6 @@ export const refreshAdminToken = async (req, res, next) => {
 
 export const getUserdata = async (req, res, next) => {
     try {
-
-        console.log(req)
         // 1. Check if middleware attached the user
         if (!req.user || !req.user.id) {
             return res.status(401).json({ message: "Unauthorized" });
