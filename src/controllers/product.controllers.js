@@ -1111,12 +1111,40 @@ export const getWholesaleDeals = async (req, res, next) => {
             },
             take: 12,
             include: {
-                variants: { select: { images: true, price_selling: true, price_mrp: true }, take: 1 },
+                variants: { select: { images: true, price_selling: true, price_mrp: true, moq: true, attributes: true, id: true }, take: 20 },
                 brand: { select: { name: true } }
             }
         });
 
         res.status(200).json({ success: true, products });
+    } catch (error) { next(error); }
+};
+
+// 🏭 SET VARIANT INTO WHOLESALE DEAL
+export const makeWholesaleOffer = async (req, res, next) => {
+    try {
+        const { variantId } = req.params;
+        const { moq, price_selling } = req.body;
+
+        if (!moq || moq < 1) {
+            return res.status(400).json({ success: false, message: "MOQ must be at least 1" });
+        }
+
+        const dataUpdate = { moq: parseInt(moq) };
+        if (price_selling) {
+            dataUpdate.price_selling = parseInt(price_selling);
+        }
+
+        const variant = await prisma.productVariant.update({
+            where: { id: parseInt(variantId) },
+            data: dataUpdate
+        });
+
+        res.status(200).json({
+            success: true,
+            message: moq > 1 ? "Variant converted to Wholesale Target!" : "Variant restored to standard Retail MOQ.",
+            variant
+        });
     } catch (error) { next(error); }
 };
 

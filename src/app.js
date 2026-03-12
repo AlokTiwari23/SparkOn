@@ -26,7 +26,7 @@ import electricianRouter from "./routes/electrician.router.js";
 const app = express()
 
 app.use(cors({
-    origin: ["http://localhost:8000", "http://localhost:5173", "http://10.213.115.12:5173", "http://10.213.115.12:8000", "http://localhost:8081"],
+    origin: ["http://localhost:8000", "http://localhost:5173", "http://172.18.15.12:5173", "http://172.18.15.12:8000", "http://localhost:8081", "http://172.18.15.12:8081"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]

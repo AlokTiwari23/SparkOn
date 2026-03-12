@@ -1,6 +1,6 @@
 import express from "express"
 import { verfiyToken } from "../middlewares/authentication/isAuthenticated.js"
-import { createBrand, createCategory, updateGlobalProductPrice, exportInventoryPDF, getAllAdminProduct, createProduct, toggleVariantStatus, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getWholesaleDeals, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock, createProductVariant, getDashboardData } from "../controllers/product.controllers.js"
+import { createBrand, createCategory, updateGlobalProductPrice, exportInventoryPDF, getAllAdminProduct, createProduct, toggleVariantStatus, deleteBulkRule, getAllBrand, getAllCategories, getAllProduct, getDeals, getWholesaleDeals, getNewArrival, getProductDetails, getSeasonPicks, getTredingNow, toggleProductStatus, updateBulkRules, updateProduct, updateProductMarketingTags, updateProductPrice, updateProductStock, createProductVariant, getDashboardData, makeWholesaleOffer } from "../controllers/product.controllers.js"
 import { isAdmin } from "../middlewares/authentication/isAuthorizedRoles.js"
 import { upload } from "../utils/multer.js"
 const productrouter = express.Router()
@@ -37,6 +37,7 @@ productrouter.patch("/:id/stock", verfiyToken, isAdmin, updateProductStock)
 productrouter.patch('/:id/price', verfiyToken, isAdmin, updateProductPrice)
 productrouter.patch("/:id/toggle-status", verfiyToken, isAdmin, toggleProductStatus)
 productrouter.patch('/variant/:variantId/toggle-status', verfiyToken, isAdmin, toggleVariantStatus);
+productrouter.patch('/variant/:variantId/wholesale', verfiyToken, isAdmin, makeWholesaleOffer);
 productrouter.get('/export/all-pdf', verfiyToken, isAdmin, exportInventoryPDF);
 productrouter.get('/export/low-stock-pdf', verfiyToken, isAdmin, exportInventoryPDF);
 
